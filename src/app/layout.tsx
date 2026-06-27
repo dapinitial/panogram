@@ -16,6 +16,7 @@ const body = Inter({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
   title: "Panogram — stand in the world",
   description:
     "Immersive social for panoramic, 360° and 180° media. Teleport anywhere. Built spatial-native.",

@@ -31,6 +31,13 @@ export default function Immersive({
   const [pending, setPending] = useState<{ yaw: number; pitch: number } | null>(null);
   const [label, setLabel] = useState("");
   const [kind, setKind] = useState<Annotation["kind"]>("note");
+  const [shared, setShared] = useState(false);
+
+  async function share() {
+    const url = `${location.origin}/p/${post.id}`;
+    try { if (navigator.share) { await navigator.share({ title: post.title, text: `Stand inside ${post.title} on Panogram`, url }); return; } } catch { /* user cancelled */ }
+    try { await navigator.clipboard.writeText(url); setShared(true); setTimeout(() => setShared(false), 1800); } catch { /* clipboard blocked */ }
+  }
 
   const canFollow = !!post.authorId && post.authorId !== user?.id;
 
@@ -100,8 +107,14 @@ export default function Immersive({
               {isFollowing ? "Following" : `Follow @${post.author.handle}`}
             </button>
           )}
+          {post.authorId && (
+            <button className="imm-close" onClick={share} aria-label="Share" title="Share this place" style={canFollow ? undefined : { marginLeft: "auto" }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><path d="m8.6 13.5 6.8 4M15.4 6.5 8.6 10.5" /></svg>
+            </button>
+          )}
           <button className="imm-close" onClick={onClose} aria-label="Exit">✕</button>
         </div>
+        {shared && <div className="toast">Link copied — anyone can step inside</div>}
 
         {/* add-mode hint */}
         {addMode && !pending && (
