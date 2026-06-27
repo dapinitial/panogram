@@ -15,6 +15,11 @@ editing.
 - `npm run lint` — eslint
 - `supabase db push` — apply new migrations to the live DB (deploys to production — get explicit OK)
 
+## Commit conventions
+- Concise imperative subject; short body covering *what* changed and *why*.
+- **Never** add `Co-authored-by:` trailers, `Generated with Claude`, or any AI/tool
+  attribution. Commits are authored by the human, full stop.
+
 ## Protocols (these are hard rules)
 
 **1. Secrets never leave the machine.**
