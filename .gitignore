@@ -30,8 +30,29 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# env files — never commit secrets, but DO keep the documented template
+.env
+.env.*
+!.env.example
+*.local
+
+# key / cert material of any kind
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.secret
+secrets/
+.secrets/
+
+# Supabase per-folder account token (direnv) — see .envrc header
+.envrc
+
+# Supabase local state (refs/pooler info land here after `link`)
+.supabase/
+supabase/.temp/
+supabase/.branches/
 
 # vercel
 .vercel
