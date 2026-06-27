@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import type { Annotation, Post } from "@/lib/types";
+import type { SelectedMarker } from "./PanoViewerImpl";
 
 // ssr:false guarantees the WebGL/three.js bundle (and anything touching `window`)
 // only ever loads in the browser — never during server render.
@@ -19,6 +20,7 @@ export default function PanoViewer(props: {
   annotations: Annotation[];
   addMode: boolean;
   onPlace: (yaw: number, pitch: number) => void;
+  onSelect: (m: SelectedMarker) => void;
 }) {
   return <Impl {...props} />;
 }

@@ -112,8 +112,15 @@ export async function addComment(postId: string, userId: string, body: string): 
 
 export async function loadAnnotations(postId: string): Promise<Annotation[]> {
   const sb = browserSupabase(); if (!sb) return [];
-  const { data } = await sb.from("annotations").select("yaw,pitch,label,kind").eq("post_id", postId);
+  const { data } = await sb.from("annotations").select("id,yaw,pitch,label,kind").eq("post_id", postId);
   return (data as Annotation[]) ?? [];
+}
+
+/** Geocache loop: log that the user found a hidden cache annotation. */
+export async function addFind(annotationId: string, userId: string): Promise<boolean> {
+  const sb = browserSupabase(); if (!sb) return false;
+  const { error } = await sb.from("finds").insert({ annotation_id: annotationId, user_id: userId });
+  return !error;
 }
 
 export async function addAnnotation(postId: string, userId: string, a: Annotation): Promise<boolean> {

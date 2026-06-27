@@ -5,7 +5,8 @@ import type { Annotation, Comment, Post } from "@/lib/types";
 import { MEDIA } from "@/lib/types";
 import PanoViewer from "./PanoViewer";
 import { track } from "@/lib/telemetry";
-import { addAnnotation, addComment, loadAnnotations, loadComments } from "@/lib/db";
+import { addAnnotation, addComment, addFind, loadAnnotations, loadComments } from "@/lib/db";
+import type { SelectedMarker } from "./PanoViewerImpl";
 
 const fmt = (n: number) => (n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n));
 const KINDS: Annotation["kind"][] = ["note", "cache", "portal"];
@@ -32,6 +33,20 @@ export default function Immersive({
   const [label, setLabel] = useState("");
   const [kind, setKind] = useState<Annotation["kind"]>("note");
   const [shared, setShared] = useState(false);
+  const [cache, setCache] = useState<{ id: string; label: string } | null>(null);
+  const [foundMsg, setFoundMsg] = useState("");
+
+  function onSelect(m: SelectedMarker) {
+    if (m.kind === "cache" && m.id) setCache({ id: m.id, label: m.label || "cache" });
+  }
+
+  async function markFound() {
+    if (!user) return onAuthRequired();
+    if (!cache) return;
+    const ok = await addFind(cache.id, user.id);
+    if (ok) { track("cache_find", { postId: post.id }); setFoundMsg(`Found “${cache.label}” 🧭`); setTimeout(() => setFoundMsg(""), 2200); }
+    setCache(null);
+  }
 
   async function share() {
     const url = `${location.origin}/p/${post.id}`;
@@ -85,7 +100,7 @@ export default function Immersive({
   return (
     <div className="imm">
       <div className="imm-stage">
-        <PanoViewer post={post} annotations={annotations} addMode={addMode} onPlace={onPlace} />
+        <PanoViewer post={post} annotations={annotations} addMode={addMode} onPlace={onPlace} onSelect={onSelect} />
 
         <svg className="gaze" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.5">
           <circle cx="24" cy="24" r="13" opacity="0.5" /><circle cx="24" cy="24" r="2.5" fill="currentColor" stroke="none" />
@@ -115,6 +130,20 @@ export default function Immersive({
           <button className="imm-close" onClick={onClose} aria-label="Exit">✕</button>
         </div>
         {shared && <div className="toast">Link copied — anyone can step inside</div>}
+        {foundMsg && <div className="toast">{foundMsg}</div>}
+
+        {/* geocache find panel */}
+        {cache && (
+          <div className="pin-compose glass">
+            <div className="eyebrow" style={{ color: "var(--holo)" }}>🧭 Cache found</div>
+            <div style={{ fontFamily: "var(--font-d)", fontSize: 18, fontWeight: 600, margin: "8px 0 4px" }}>{cache.label}</div>
+            <p style={{ color: "var(--ink-dim)", fontSize: 13, lineHeight: 1.5 }}>You spotted a hidden cache in this scene. Log the find?</p>
+            <div className="sheet-foot" style={{ marginTop: 14 }}>
+              <button className="btn-sec" onClick={() => setCache(null)}>Not yet</button>
+              <button className="btn-upload" onClick={markFound}>Log find</button>
+            </div>
+          </div>
+        )}
 
         {/* add-mode hint */}
         {addMode && !pending && (

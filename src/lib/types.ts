@@ -24,6 +24,7 @@ export const MEDIA: Record<MediaType, MediaSpec> = {
 };
 
 export interface Annotation {
+  id?: string;   // DB id (present when loaded from the server)
   yaw: number;   // radians — sphere longitude
   pitch: number; // radians — sphere latitude
   label: string;

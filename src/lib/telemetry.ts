@@ -8,6 +8,7 @@ export type EventName =
   | "explore_drag"
   | "annotation_tap"
   | "annotation_create"
+  | "cache_find"
   | "comment"
   | "follow"
   | "like"

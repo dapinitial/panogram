@@ -17,18 +17,23 @@ function markerOf(a: Annotation, i: number) {
     position: { yaw: a.yaw, pitch: a.pitch },
     html: `<div class="pg-marker pg-marker--${a.kind}"><span class="pg-marker-ring"></span><span class="pg-marker-label">${a.label || a.kind}</span></div>`,
     anchor: "center center",
-    data: { label: a.label, kind: a.kind },
+    data: { id: a.id, label: a.label, kind: a.kind },
   };
 }
 
+export type SelectedMarker = { id?: string; label?: string; kind?: string };
+
 export default function PanoViewerImpl({
-  post, annotations, addMode, onPlace,
+  post, annotations, addMode, onPlace, onSelect,
 }: {
   post: Post;
   annotations: Annotation[];
   addMode: boolean;
   onPlace: (yaw: number, pitch: number) => void;
+  onSelect: (m: SelectedMarker) => void;
 }) {
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const markersRef = useRef<any>(null);
   const draggedOnce = useRef(false);
@@ -50,8 +55,9 @@ export default function PanoViewerImpl({
       markersRef.current = mp;
       mp?.setMarkers(annotations.map(markerOf));
 
-      mp?.addEventListener("select-marker", (e: { marker: { data?: { label?: string } } }) => {
+      mp?.addEventListener("select-marker", (e: { marker: { data?: SelectedMarker } }) => {
         track("annotation_tap", { postId: post.id, props: { label: e.marker?.data?.label } });
+        if (e.marker?.data) onSelectRef.current(e.marker.data);
       });
       viewer.addEventListener("position-updated", () => {
         if (!draggedOnce.current) { draggedOnce.current = true; track("explore_drag", { postId: post.id }); }
