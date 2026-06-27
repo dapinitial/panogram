@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Panogram secret-scan pre-commit hook. Blocks commits that would leak secrets.
+# Enable once per clone:  git config core.hooksPath .githooks
+# Emergency bypass (use only when you're certain):  git commit --no-verify
+set -euo pipefail
+
+fail=0
+
+# 1) Never commit secret-bearing env / token files (only .env.example is allowed).
+while IFS= read -r f; do
+  case "$f" in
+    .env.example) : ;;                              # template — allowed
+    .env|.env.*|.envrc|*.pem|*.key|*.p12|*.pfx)
+      echo "❌ blocked: '$f' must not be committed (secrets)."
+      fail=1 ;;
+  esac
+done < <(git diff --cached --name-only)
+
+# 2) Scan staged ADDED lines for secret-looking tokens.
+#    Patterns: Supabase secret/PAT/publishable, Resend, and JWTs.
+added="$(git diff --cached --unified=0 -- . ':(exclude).env.example' | grep '^+' || true)"
+if [ -n "$added" ]; then
+  hits="$(printf '%s\n' "$added" | grep -nE \
+    'sb_secret_[A-Za-z0-9]{12,}|sbp_[A-Za-z0-9]{12,}|sb_publishable_[A-Za-z0-9]{12,}|re_[A-Za-z0-9]{20,}|eyJ[A-Za-z0-9_-]{15,}\.[A-Za-z0-9_-]{15,}\.[A-Za-z0-9_-]{10,}' \
+    || true)"
+  if [ -n "$hits" ]; then
+    echo "❌ blocked: a secret-looking token is in your staged changes:"
+    # mask the middle of each hit so we don't print the secret
+    printf '%s\n' "$hits" | sed -E 's/([A-Za-z0-9_]{6})[A-Za-z0-9._-]{6,}/\1…REDACTED/g' | head -8
+    fail=1
+  fi
+fi
+
+if [ "$fail" -ne 0 ]; then
+  echo ""
+  echo "Commit aborted. Move the secret to .env.local (gitignored), or bypass with --no-verify if it's a false positive."
+  exit 1
+fi
+exit 0
