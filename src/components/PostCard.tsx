@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import type { Post } from "@/lib/types";
 import { MEDIA } from "@/lib/types";
 import { track } from "@/lib/telemetry";
@@ -57,10 +58,17 @@ export default function PostCard({
       </div>
 
       <div className="card-foot">
-        <div className="who">
-          <div className="dot-av" style={{ background: post.author.grad }}>{post.author.initials}</div>
-          <span className="handle">@{post.author.handle}</span>
-        </div>
+        {post.authorId ? (
+          <Link href={`/u/${post.author.handle}`} className="who" onClick={stop}>
+            <div className="dot-av" style={{ background: post.author.grad }}>{post.author.initials}</div>
+            <span className="handle">@{post.author.handle}</span>
+          </Link>
+        ) : (
+          <div className="who">
+            <div className="dot-av" style={{ background: post.author.grad }}>{post.author.initials}</div>
+            <span className="handle">@{post.author.handle}</span>
+          </div>
+        )}
         <div className="stats">
           <button className="stat" style={liked ? { color: "var(--coral)" } : undefined}
             onClick={(e) => { stop(e); onLike(post); }} aria-label="Like">
