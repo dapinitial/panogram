@@ -1,56 +1,71 @@
 "use client";
 
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { ReactPhotoSphereViewer } from "react-photo-sphere-viewer";
 import { MarkersPlugin } from "@photo-sphere-viewer/markers-plugin";
 import "@photo-sphere-viewer/core/index.css";
 import "@photo-sphere-viewer/markers-plugin/index.css";
-import type { Post } from "@/lib/types";
+import type { Annotation, Post } from "@/lib/types";
 import { MEDIA } from "@/lib/types";
 import { track } from "@/lib/telemetry";
 
-// Real equirectangular renderer (three.js under the hood). Annotations become
-// PSV markers — the literal spatial layer from the vision, shown today as a
-// glowing HUD tag floating in the scene.
-export default function PanoViewerImpl({ post }: { post: Post }) {
-  const draggedOnce = useRef(false);
+// Real equirectangular renderer. Annotations are PSV markers (the spatial layer).
+// In add-mode, clicking the sphere reports the yaw/pitch so a new tag can be placed.
+function markerOf(a: Annotation, i: number) {
+  return {
+    id: `anno-${i}-${a.yaw.toFixed(3)}-${a.pitch.toFixed(3)}`,
+    position: { yaw: a.yaw, pitch: a.pitch },
+    html: `<div class="pg-marker pg-marker--${a.kind}"><span class="pg-marker-ring"></span><span class="pg-marker-label">${a.label || a.kind}</span></div>`,
+    anchor: "center center",
+    data: { label: a.label, kind: a.kind },
+  };
+}
 
-  const markers =
-    (post.annotations ?? []).map((a, i) => ({
-      id: `anno-${i}`,
-      position: { yaw: a.yaw, pitch: a.pitch },
-      html: `<div class="pg-marker pg-marker--${a.kind}"><span class="pg-marker-ring"></span><span class="pg-marker-label">${a.label}</span></div>`,
-      anchor: "center center",
-      tooltip: { content: a.label, position: "top center" },
-      data: { kind: a.kind, label: a.label },
-    })) ?? [];
+export default function PanoViewerImpl({
+  post, annotations, addMode, onPlace,
+}: {
+  post: Post;
+  annotations: Annotation[];
+  addMode: boolean;
+  onPlace: (yaw: number, pitch: number) => void;
+}) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const markersRef = useRef<any>(null);
+  const draggedOnce = useRef(false);
+  const addModeRef = useRef(addMode);
+  const onPlaceRef = useRef(onPlace);
+  addModeRef.current = addMode;
+  onPlaceRef.current = onPlace;
+
+  // Push marker changes imperatively so the panorama image never reloads.
+  useEffect(() => {
+    markersRef.current?.setMarkers(annotations.map(markerOf));
+  }, [annotations]);
 
   const onReady = useCallback(
     (instance: unknown) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const viewer = instance as any;
-      viewer.addEventListener("position-updated", () => {
-        if (!draggedOnce.current) {
-          draggedOnce.current = true;
-          track("explore_drag", { postId: post.id, props: { type: post.type } });
-        }
+      const mp = viewer.getPlugin(MarkersPlugin);
+      markersRef.current = mp;
+      mp?.setMarkers(annotations.map(markerOf));
+
+      mp?.addEventListener("select-marker", (e: { marker: { data?: { label?: string } } }) => {
+        track("annotation_tap", { postId: post.id, props: { label: e.marker?.data?.label } });
       });
-      try {
-        const mp = viewer.getPlugin(MarkersPlugin);
-        mp?.addEventListener("select-marker", (e: { marker: { data?: { label?: string } } }) => {
-          track("annotation_tap", { postId: post.id, props: { label: e.marker?.data?.label } });
-        });
-      } catch {
-        /* no markers on this post */
-      }
+      viewer.addEventListener("position-updated", () => {
+        if (!draggedOnce.current) { draggedOnce.current = true; track("explore_drag", { postId: post.id }); }
+      });
+      // Click to place a new annotation when in add-mode.
+      viewer.addEventListener("click", (e: { data: { yaw: number; pitch: number } }) => {
+        if (addModeRef.current && e.data) onPlaceRef.current(e.data.yaw, e.data.pitch);
+      });
     },
-    [post.id, post.type],
+    // annotations intentionally omitted — markers sync via the effect above
+    [post.id], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
-  // 180 formats: clamp the horizontal field so it reads as a half-sphere.
-  const immersive = MEDIA[post.type].immersive;
   const is180 = post.type.startsWith("180");
-
   return (
     <ReactPhotoSphereViewer
       src={post.panoUrl}
@@ -61,9 +76,9 @@ export default function PanoViewerImpl({ post }: { post: Post }) {
       defaultZoomLvl={is180 ? 40 : 0}
       minFov={30}
       maxFov={is180 ? 90 : 100}
-      plugins={markers.length ? [[MarkersPlugin, { markers }]] : []}
+      plugins={[[MarkersPlugin, {}]]}
       onReady={onReady}
-      loadingTxt={immersive ? "Entering sphere…" : "Loading view…"}
+      loadingTxt={MEDIA[post.type].immersive ? "Entering sphere…" : "Loading view…"}
     />
   );
 }

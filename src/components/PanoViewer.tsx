@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import type { Post } from "@/lib/types";
+import type { Annotation, Post } from "@/lib/types";
 
 // ssr:false guarantees the WebGL/three.js bundle (and anything touching `window`)
 // only ever loads in the browser — never during server render.
@@ -14,6 +14,11 @@ const Impl = dynamic(() => import("./PanoViewerImpl"), {
   ),
 });
 
-export default function PanoViewer({ post }: { post: Post }) {
-  return <Impl post={post} />;
+export default function PanoViewer(props: {
+  post: Post;
+  annotations: Annotation[];
+  addMode: boolean;
+  onPlace: (yaw: number, pitch: number) => void;
+}) {
+  return <Impl {...props} />;
 }

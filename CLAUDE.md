@@ -77,7 +77,7 @@ editing.
 ## Map
 - `src/app/` — routes: `page.tsx` (shell), `admin/` (data room), `auth/callback/`, `api/{events,test-email}/`
 - `src/components/` — `Nav`, `Feed`, `PostCard`, `Immersive`+`PanoViewer*`, `Upload`, `AuthSheet`
-- `src/lib/` — supabase clients, `email.ts`, `telemetry.ts`, `types.ts`, `mock.ts`
+- `src/lib/` — supabase clients, `db.ts` (live-DB data access), `email.ts`, `telemetry.ts`, `types.ts`, `mock.ts`
 - `src/proxy.ts` — session refresh (Next 16 "proxy", formerly middleware)
 - `supabase/migrations/` — schema + RLS (source of truth for the DB)
 - `docs/VISION.md` — product thesis · `.githooks/` — secret-scan pre-commit

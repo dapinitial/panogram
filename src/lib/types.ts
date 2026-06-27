@@ -38,6 +38,7 @@ export interface Author {
 
 export interface Post {
   id: string;
+  authorId?: string; // DB author (absent for seed/mock posts)
   type: MediaType;
   title: string;
   location: string;
@@ -47,5 +48,13 @@ export interface Post {
   likes: number;
   comments: number;
   saves: number;
+  annotationCount?: number;
   annotations?: Annotation[];
+}
+
+export interface Comment {
+  id: string;
+  body: string;
+  createdAt: string;
+  author: Author;
 }

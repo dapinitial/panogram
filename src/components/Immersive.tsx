@@ -1,30 +1,87 @@
 "use client";
 
-import { useEffect } from "react";
-import type { Post } from "@/lib/types";
+import { useEffect, useState } from "react";
+import type { Annotation, Comment, Post } from "@/lib/types";
 import { MEDIA } from "@/lib/types";
 import PanoViewer from "./PanoViewer";
 import { track } from "@/lib/telemetry";
+import { addAnnotation, addComment, loadAnnotations, loadComments } from "@/lib/db";
 
-export default function Immersive({ post, onClose }: { post: Post; onClose: () => void }) {
+const fmt = (n: number) => (n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n));
+const KINDS: Annotation["kind"][] = ["note", "cache", "portal"];
+
+export default function Immersive({
+  post, user, liked, isFollowing, onClose, onLike, onFollow, onAuthRequired,
+}: {
+  post: Post;
+  user: { id: string; email?: string } | null;
+  liked: boolean;
+  isFollowing: boolean;
+  onClose: () => void;
+  onLike: () => void;
+  onFollow: () => void;
+  onAuthRequired: () => void;
+}) {
+  const spec = MEDIA[post.type];
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [annotations, setAnnotations] = useState<Annotation[]>(post.annotations ?? []);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [addMode, setAddMode] = useState(false);
+  const [pending, setPending] = useState<{ yaw: number; pitch: number } | null>(null);
+  const [label, setLabel] = useState("");
+  const [kind, setKind] = useState<Annotation["kind"]>("note");
+
+  const canFollow = !!post.authorId && post.authorId !== user?.id;
+
+  // Load once per post (don't re-run on every state change).
   useEffect(() => {
     track("viewer_open", { postId: post.id, props: { type: post.type } });
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    if (post.authorId) {
+      loadComments(post.id).then(setComments);
+      loadAnnotations(post.id).then((a) => a.length && setAnnotations(a));
+    }
+  }, [post.id, post.authorId, post.type]);
+
+  // Esc closes the pin composer first, otherwise the viewer.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && (pending ? setPending(null) : onClose());
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [post.id, post.type, onClose]);
+  }, [pending, onClose]);
 
-  const spec = MEDIA[post.type];
+  function onPlace(yaw: number, pitch: number) {
+    if (!user) { setAddMode(false); return onAuthRequired(); }
+    setPending({ yaw, pitch });
+    setLabel("");
+  }
+
+  async function savePin() {
+    if (!user || !pending || !label.trim() || !post.authorId) return;
+    const a: Annotation = { yaw: pending.yaw, pitch: pending.pitch, label: label.trim(), kind };
+    const ok = await addAnnotation(post.id, user.id, a);
+    if (ok) {
+      setAnnotations((prev) => [...prev, a]);
+      track("annotation_create", { postId: post.id, props: { kind } });
+    }
+    setPending(null); setAddMode(false);
+  }
+
+  async function submitComment() {
+    if (!user) return onAuthRequired();
+    if (!text.trim() || !post.authorId) return;
+    const c = await addComment(post.id, user.id, text.trim());
+    if (c) { setComments((prev) => [...prev, c]); track("comment", { postId: post.id }); }
+    setText("");
+  }
 
   return (
     <div className="imm">
       <div className="imm-stage">
-        <PanoViewer post={post} />
+        <PanoViewer post={post} annotations={annotations} addMode={addMode} onPlace={onPlace} />
 
-        {/* gaze reticle — a spatial-targeting hint that fades after a beat */}
         <svg className="gaze" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <circle cx="24" cy="24" r="13" opacity="0.5" />
-          <circle cx="24" cy="24" r="2.5" fill="currentColor" stroke="none" />
+          <circle cx="24" cy="24" r="13" opacity="0.5" /><circle cx="24" cy="24" r="2.5" fill="currentColor" stroke="none" />
           <path d="M24 3v8M24 37v8M3 24h8M37 24h8" />
         </svg>
 
@@ -35,25 +92,83 @@ export default function Immersive({ post, onClose }: { post: Post; onClose: () =
             <img src="/panogram-mark.png" alt="Panogram" />
             <div>
               <div className="imm-title">{post.title}</div>
-              <div className="imm-sub">
-                {spec.label} · {post.location} · @{post.author.handle}
-              </div>
+              <div className="imm-sub">{spec.label} · {post.location} · @{post.author.handle}</div>
             </div>
           </div>
-          <div className="imm-hud">
-            <span className="dot" /> Immersive mode
+          {canFollow && (
+            <button className={`follow ${isFollowing ? "on" : ""}`} onClick={() => (user ? onFollow() : onAuthRequired())}>
+              {isFollowing ? "Following" : `Follow @${post.author.handle}`}
+            </button>
+          )}
+          <button className="imm-close" onClick={onClose} aria-label="Exit">✕</button>
+        </div>
+
+        {/* add-mode hint */}
+        {addMode && !pending && (
+          <div className="imm-bottom"><div className="glasses-hint">⌖ Click anywhere in the scene to drop a spatial tag</div></div>
+        )}
+        {!addMode && (
+          <div className="imm-bottom"><div className="glasses-hint">⌖ Drag to look around · <b>Optimized for spatial displays</b></div></div>
+        )}
+
+        {/* pin label composer */}
+        {pending && (
+          <div className="pin-compose glass">
+            <div className="eyebrow">New spatial tag</div>
+            <input autoFocus placeholder="What's here?" value={label} onChange={(e) => setLabel(e.target.value)} onKeyDown={(e) => e.key === "Enter" && savePin()} />
+            <div className="seg" style={{ marginTop: 10 }}>
+              {KINDS.map((k) => <button key={k} className="seg-opt" data-active={kind === k} onClick={() => setKind(k)}>{k}</button>)}
+            </div>
+            <div className="sheet-foot" style={{ marginTop: 14 }}>
+              <button className="btn-sec" onClick={() => setPending(null)}>Cancel</button>
+              <button className="btn-upload" disabled={!label.trim()} onClick={savePin}>Drop tag</button>
+            </div>
           </div>
-          <button className="imm-close" onClick={onClose} aria-label="Exit immersive view">
-            ✕
+        )}
+
+        {/* action rail */}
+        <div className="imm-rail">
+          <button className="rail-btn" data-on={liked} onClick={onLike} title="Like">
+            <svg viewBox="0 0 24 24" fill={liked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 1 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8z" /></svg>
+            <span>{fmt(post.likes)}</span>
+          </button>
+          <button className="rail-btn" data-on={panelOpen} onClick={() => setPanelOpen((v) => !v)} title="Comments">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+            <span>{comments.length}</span>
+          </button>
+          <button className="rail-btn" data-on={addMode} onClick={() => (user ? setAddMode((v) => !v) : onAuthRequired())} title="Add spatial tag">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="11" r="8" /><path d="M12 8v6M9 11h6" /></svg>
+            <span>tag</span>
           </button>
         </div>
 
-        {/* bottom HUD — drag hint + the glasses-ready tell */}
-        <div className="imm-bottom">
-          <div className="glasses-hint">
-            ⌖ Drag to look around &nbsp;·&nbsp; <b>Optimized for spatial displays</b>
-          </div>
-        </div>
+        {/* comments drawer */}
+        {panelOpen && (
+          <aside className="drawer glass">
+            <div className="drawer-head"><b>Comments</b><button className="imm-close" onClick={() => setPanelOpen(false)}>✕</button></div>
+            <div className="drawer-list">
+              {!post.authorId ? (
+                <p className="drawer-empty">Comments live on published captures. This is a demo panorama.</p>
+              ) : comments.length === 0 ? (
+                <p className="drawer-empty">No comments yet. Say something about this place.</p>
+              ) : (
+                comments.map((c) => (
+                  <div className="cmt" key={c.id}>
+                    <div className="dot-av" style={{ background: c.author.grad, width: 26, height: 26 }}>{c.author.initials}</div>
+                    <div><div className="cmt-h">@{c.author.handle}</div><div className="cmt-b">{c.body}</div></div>
+                  </div>
+                ))
+              )}
+            </div>
+            {post.authorId && (
+              <div className="drawer-input">
+                <input placeholder={user ? "Add a comment…" : "Sign in to comment"} value={text}
+                  onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submitComment()} />
+                <button className="btn-upload" onClick={submitComment} disabled={!text.trim()}>Send</button>
+              </div>
+            )}
+          </aside>
+        )}
       </div>
     </div>
   );
