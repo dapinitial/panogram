@@ -5,12 +5,13 @@ import { POSTS } from "@/lib/mock";
 import type { Post } from "@/lib/types";
 import { track } from "@/lib/telemetry";
 import { browserSupabase } from "@/lib/supabase-browser";
-import { loadFeed, loadMyEngagement, toggleLike, toggleSave, toggleFollow, followerCount } from "@/lib/db";
+import { loadFeed, loadMyEngagement, loadNotifications, toggleLike, toggleSave, toggleFollow, followerCount, type Notification } from "@/lib/db";
 import Nav, { type Tab } from "@/components/Nav";
 import Feed from "@/components/Feed";
 import Immersive from "@/components/Immersive";
 import Upload from "@/components/Upload";
 import AuthSheet from "@/components/AuthSheet";
+import Notifications from "@/components/Notifications";
 
 export default function Home() {
   const [tab, setTab] = useState<Tab>("Feed");
@@ -24,8 +25,12 @@ export default function Home() {
   const [user, setUser] = useState<{ id: string; email?: string } | null>(null);
   const [query, setQuery] = useState("");
   const [followers, setFollowers] = useState(0);
+  const [notifs, setNotifs] = useState<Notification[]>([]);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [seen, setSeen] = useState("");
 
   const viewing = useMemo(() => posts.find((p) => p.id === viewingId) ?? null, [posts, viewingId]);
+  const unread = notifs.filter((n) => n.createdAt > seen).length;
 
   const refresh = useCallback(async (uid?: string) => {
     const db = await loadFeed();
@@ -34,10 +39,19 @@ export default function Home() {
       const me = await loadMyEngagement(uid);
       setLiked(me.liked); setSaved(me.saved); setFollowing(me.following);
       setFollowers(await followerCount(uid));
+      setNotifs(await loadNotifications(uid));
     }
   }, []);
 
   useEffect(() => { track("view", { props: { tab } }); }, [tab]);
+  useEffect(() => { setSeen(localStorage.getItem("pg_notif_seen") ?? ""); }, []);
+
+  function openBell() {
+    setNotifOpen(true);
+    const now = new Date().toISOString();
+    setSeen(now);
+    try { localStorage.setItem("pg_notif_seen", now); } catch { /* private mode */ }
+  }
 
   useEffect(() => {
     const sb = browserSupabase();
@@ -102,7 +116,7 @@ export default function Home() {
   return (
     <>
       <div className="backdrop" />
-      <Nav tab={tab} onTab={setTab} onUpload={() => setUploadOpen(true)} user={user} onSignIn={() => setAuthOpen(true)} onSignOut={signOut} />
+      <Nav tab={tab} onTab={setTab} onUpload={() => setUploadOpen(true)} user={user} onSignIn={() => setAuthOpen(true)} onSignOut={signOut} unread={unread} onBell={openBell} />
 
       <main className="shell">
         {tab === "Feed" && <Feed posts={posts} liked={liked} saved={saved} onOpen={setViewingId} onLike={onLike} onSave={onSave} />}
@@ -159,6 +173,7 @@ export default function Home() {
       )}
       {uploadOpen && <Upload user={user} onClose={() => setUploadOpen(false)} onPublish={publish} />}
       {authOpen && <AuthSheet onClose={() => setAuthOpen(false)} />}
+      {notifOpen && <Notifications items={notifs} onClose={() => setNotifOpen(false)} />}
     </>
   );
 }

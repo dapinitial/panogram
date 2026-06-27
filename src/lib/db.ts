@@ -123,3 +123,54 @@ export async function addAnnotation(postId: string, userId: string, a: Annotatio
   });
   return !error;
 }
+
+const DEFAULT_GRAD = "linear-gradient(135deg,#ff6b35,#7c3aed)";
+
+export interface Notification {
+  id: string;
+  kind: "like" | "comment" | "follow";
+  actorHandle: string;
+  actorGrad: string;
+  postId?: string;
+  postTitle?: string;
+  body?: string;
+  createdAt: string;
+}
+
+type ActorRow = { created_at: string; profiles: ProfileEmbed };
+
+/** Activity on the user's own content — derived live from likes/comments/follows
+ *  (no notifications table). Newest first. */
+export async function loadNotifications(userId: string): Promise<Notification[]> {
+  const sb = browserSupabase();
+  if (!sb) return [];
+  const { data: myPosts } = await sb.from("posts").select("id,title").eq("author_id", userId);
+  const ids = ((myPosts as { id: string; title: string }[]) ?? []).map((p) => p.id);
+  const titleOf = new Map(((myPosts as { id: string; title: string }[]) ?? []).map((p) => [p.id, p.title]));
+
+  const [likes, comments, follows] = await Promise.all([
+    ids.length ? sb.from("likes").select("post_id,created_at,user_id,profiles(handle,avatar_grad)").in("post_id", ids).neq("user_id", userId).order("created_at", { ascending: false }).limit(30) : Promise.resolve({ data: [] }),
+    ids.length ? sb.from("comments").select("id,post_id,body,created_at,user_id,profiles(handle,avatar_grad)").in("post_id", ids).neq("user_id", userId).order("created_at", { ascending: false }).limit(30) : Promise.resolve({ data: [] }),
+    sb.from("follows").select("follower_id,created_at").eq("following_id", userId).order("created_at", { ascending: false }).limit(30),
+  ]);
+
+  // follower profiles (two FKs to profiles → resolve handles in one extra query)
+  const followerIds = ((follows.data as { follower_id: string }[]) ?? []).map((f) => f.follower_id);
+  const profMap = new Map<string, { handle: string; avatar_grad: string | null }>();
+  if (followerIds.length) {
+    const { data: profs } = await sb.from("profiles").select("id,handle,avatar_grad").in("id", followerIds);
+    ((profs as { id: string; handle: string; avatar_grad: string | null }[]) ?? []).forEach((p) => profMap.set(p.id, p));
+  }
+
+  const items: Notification[] = [];
+  ((likes.data as unknown as (ActorRow & { post_id: string })[]) ?? []).forEach((l) =>
+    items.push({ id: `l-${l.post_id}-${l.created_at}`, kind: "like", actorHandle: l.profiles?.handle ?? "someone", actorGrad: l.profiles?.avatar_grad ?? DEFAULT_GRAD, postId: l.post_id, postTitle: titleOf.get(l.post_id), createdAt: l.created_at }));
+  ((comments.data as unknown as (ActorRow & { id: string; post_id: string; body: string })[]) ?? []).forEach((c) =>
+    items.push({ id: `c-${c.id}`, kind: "comment", actorHandle: c.profiles?.handle ?? "someone", actorGrad: c.profiles?.avatar_grad ?? DEFAULT_GRAD, postId: c.post_id, postTitle: titleOf.get(c.post_id), body: c.body, createdAt: c.created_at }));
+  ((follows.data as { follower_id: string; created_at: string }[]) ?? []).forEach((f) => {
+    const p = profMap.get(f.follower_id);
+    items.push({ id: `f-${f.follower_id}-${f.created_at}`, kind: "follow", actorHandle: p?.handle ?? "someone", actorGrad: p?.avatar_grad ?? DEFAULT_GRAD, createdAt: f.created_at });
+  });
+
+  return items.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 40);
+}

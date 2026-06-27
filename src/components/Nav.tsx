@@ -12,6 +12,8 @@ export default function Nav({
   user,
   onSignIn,
   onSignOut,
+  unread,
+  onBell,
 }: {
   tab: Tab;
   onTab: (t: Tab) => void;
@@ -19,6 +21,8 @@ export default function Nav({
   user: { email?: string } | null;
   onSignIn: () => void;
   onSignOut: () => void;
+  unread: number;
+  onBell: () => void;
 }) {
   return (
     <nav className="nav">
@@ -58,13 +62,15 @@ export default function Nav({
           Capture
         </button>
         {user ? (
-          <div
-            className="avatar"
-            title={`${user.email ?? "Signed in"} — click to sign out`}
-            onClick={onSignOut}
-          >
-            {(user.email?.[0] ?? "Y").toUpperCase()}
-          </div>
+          <>
+            <button className="bell" onClick={onBell} aria-label="Activity">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.7 21a2 2 0 0 1-3.4 0" /></svg>
+              {unread > 0 && <span className="bell-dot">{unread > 9 ? "9+" : unread}</span>}
+            </button>
+            <div className="avatar" title={`${user.email ?? "Signed in"} — click to sign out`} onClick={onSignOut}>
+              {(user.email?.[0] ?? "Y").toUpperCase()}
+            </div>
+          </>
         ) : (
           <button className="nav-tab" style={{ color: "var(--ink)" }} onClick={onSignIn}>
             Sign in
