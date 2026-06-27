@@ -1,0 +1,23 @@
+# DigitalOcean App Platform spec — Panogram (Next.js SSR web service).
+# Deploy with the /deploy skill, or: doctl apps create --spec .do/app.yaml
+#
+# Lives at <app>.ondigitalocean.app until a custom domain is added. To make a custom
+# subdomain + cert fully automatic, host the domain's DNS on DO (see the /deploy skill,
+# "DNS Mode A") — then add a `domains:` block here and DO provisions everything.
+name: panogram
+region: nyc
+services:
+  - name: web
+    github:
+      repo: dapinitial/panogram
+      branch: main
+      deploy_on_push: true
+    environment_slug: node-js
+    build_command: npm run build
+    run_command: npx next start -p 8080
+    instance_size_slug: basic-xxs
+    instance_count: 1
+    http_port: 8080
+    # All env vars are set in the DO dashboard → Settings → Env (so NO keys live in the repo):
+    #   NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, NEXT_PUBLIC_SITE_URL
+    #   SUPABASE_SECRET_KEY  (mark ENCRYPTED), RESEND_API_KEY (mark ENCRYPTED)
