@@ -13,6 +13,7 @@ import Upload from "@/components/Upload";
 import AuthSheet from "@/components/AuthSheet";
 import Notifications from "@/components/Notifications";
 import Welcome from "@/components/Welcome";
+import Footer from "@/components/Footer";
 
 export default function Home() {
   const [tab, setTab] = useState<Tab>("Feed");
@@ -171,6 +172,8 @@ export default function Home() {
           </>
         )}
       </main>
+
+      <Footer />
 
       {viewing && (
         <Immersive

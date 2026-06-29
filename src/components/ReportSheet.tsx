@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { fileReport, type ReportReason, type ReportTarget } from "@/lib/db";
 import { track } from "@/lib/telemetry";
 
@@ -56,7 +57,10 @@ export default function ReportSheet({
           <>
             <div className="eyebrow" style={{ color: "var(--coral)" }}>⚑ Report</div>
             <h3 style={{ fontFamily: "var(--font-d)", margin: "6px 0 2px" }}>What&apos;s wrong with {target.label}?</h3>
-            <p style={{ color: "var(--ink-dim)", fontSize: 13, margin: "0 0 14px" }}>Reports are confidential. Pick the closest reason.</p>
+            <p style={{ color: "var(--ink-dim)", fontSize: 13, margin: "0 0 14px" }}>
+              Reports are confidential. Pick the closest reason — see{" "}
+              <Link href="/guidelines" style={{ color: "var(--holo)" }}>what&apos;s allowed</Link>.
+            </p>
             <div className="report-reasons">
               {REASONS.map((r) => (
                 <button key={r.id} className="seg-opt" data-active={reason === r.id} onClick={() => setReason(r.id)}>{r.label}</button>

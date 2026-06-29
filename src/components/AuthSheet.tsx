@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { browserSupabase } from "@/lib/supabase-browser";
 
 export default function AuthSheet({ onClose }: { onClose: () => void }) {
@@ -65,6 +66,11 @@ export default function AuthSheet({ onClose }: { onClose: () => void }) {
             {state === "error" && (
               <p style={{ color: "var(--coral)", fontSize: 12.5, marginTop: 10 }}>{msg}</p>
             )}
+            <p className="auth-consent">
+              By continuing, you agree to Panogram&apos;s{" "}
+              <Link href="/terms" onClick={onClose}>Terms</Link> and{" "}
+              <Link href="/privacy" onClick={onClose}>Privacy Policy</Link>.
+            </p>
             <div className="sheet-foot">
               <span className="sheet-note">We&apos;ll never post without asking.</span>
               <button className="btn-upload" disabled={!email.trim() || state === "sending"} onClick={sendLink}>
