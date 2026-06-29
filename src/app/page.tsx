@@ -5,7 +5,7 @@ import { POSTS } from "@/lib/mock";
 import type { Post } from "@/lib/types";
 import { track } from "@/lib/telemetry";
 import { browserSupabase } from "@/lib/supabase-browser";
-import { loadFeed, loadMyEngagement, loadNotifications, toggleLike, toggleSave, toggleFollow, followerCount, type Notification } from "@/lib/db";
+import { loadFeed, loadMyEngagement, loadNotifications, loadMyBlocks, blockUser, toggleLike, toggleSave, toggleFollow, followerCount, type Notification } from "@/lib/db";
 import Nav, { type Tab } from "@/components/Nav";
 import Feed from "@/components/Feed";
 import Immersive from "@/components/Immersive";
@@ -29,12 +29,15 @@ export default function Home() {
   const [notifs, setNotifs] = useState<Notification[]>([]);
   const [notifOpen, setNotifOpen] = useState(false);
   const [seen, setSeen] = useState("");
+  const [blocked, setBlocked] = useState<Set<string>>(new Set());
 
   const viewing = useMemo(() => posts.find((p) => p.id === viewingId) ?? null, [posts, viewingId]);
   const unread = notifs.filter((n) => n.createdAt > seen).length;
 
   const refresh = useCallback(async (uid?: string) => {
-    const db = await loadFeed();
+    const blocks = uid ? await loadMyBlocks(uid) : new Set<string>();
+    setBlocked(blocks);
+    const db = await loadFeed(blocks);
     setPosts(db.length ? [...db, ...POSTS] : POSTS);
     if (uid) {
       const me = await loadMyEngagement(uid);
@@ -94,6 +97,15 @@ export default function Home() {
     const on = !following.has(post.authorId);
     setFollowing((s) => { const n = new Set(s); on ? n.add(post.authorId!) : n.delete(post.authorId!); return n; });
     await toggleFollow(post.authorId, user.id, on);
+  }
+
+  async function onBlock(targetId: string) {
+    if (!user) return setAuthOpen(true);
+    setBlocked((s) => new Set(s).add(targetId));
+    setViewingId(null);
+    track("block", { props: { target: targetId } });
+    await blockUser(user.id, targetId);
+    await refresh(user.id);
   }
 
   function publish(post: Post) {
@@ -169,6 +181,8 @@ export default function Home() {
           onClose={() => setViewingId(null)}
           onLike={() => onLike(viewing)}
           onFollow={() => onFollow(viewing)}
+          onBlock={onBlock}
+          blocked={blocked}
           onAuthRequired={() => setAuthOpen(true)}
         />
       )}

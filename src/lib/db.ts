@@ -35,8 +35,9 @@ function tally(rows: { post_id: string }[] | null): Map<string, number> {
   return m;
 }
 
-/** Load the live feed (newest first) with engagement counts. */
-export async function loadFeed(): Promise<Post[]> {
+/** Load the live feed (newest first) with engagement counts. Removed posts are
+ *  hidden by RLS; `blocked` authors are filtered out client-side. */
+export async function loadFeed(blocked?: Set<string>): Promise<Post[]> {
   const sb = browserSupabase();
   if (!sb) return [];
   const [posts, likes, comments, annos] = await Promise.all([
@@ -48,7 +49,9 @@ export async function loadFeed(): Promise<Post[]> {
   const lc = tally(likes.data as { post_id: string }[]);
   const cc = tally(comments.data as { post_id: string }[]);
   const ac = tally(annos.data as { post_id: string }[]);
-  return ((posts.data as unknown as PostRow[]) ?? []).map((r) => {
+  let rows = (posts.data as unknown as PostRow[]) ?? [];
+  if (blocked?.size) rows = rows.filter((r) => !blocked.has(r.author_id));
+  return rows.map((r) => {
     const url = r.storage_path ? sb.storage.from("panoramas").getPublicUrl(r.storage_path).data.publicUrl : null;
     return rowToPost(r, url, { likes: lc.get(r.id) ?? 0, comments: cc.get(r.id) ?? 0, annos: ac.get(r.id) ?? 0 });
   });
@@ -94,12 +97,12 @@ export async function followerCount(targetId: string): Promise<number> {
   return count ?? 0;
 }
 
-export async function loadComments(postId: string): Promise<Comment[]> {
+export async function loadComments(postId: string, blocked?: Set<string>): Promise<Comment[]> {
   const sb = browserSupabase(); if (!sb) return [];
-  const { data } = await sb.from("comments").select("id,body,created_at,profiles(handle,avatar_grad)").eq("post_id", postId).order("created_at", { ascending: true });
-  return ((data as unknown as { id: string; body: string; created_at: string; profiles: ProfileEmbed }[]) ?? []).map((r) => ({
-    id: r.id, body: r.body, createdAt: r.created_at, author: authorOf(r.profiles),
-  }));
+  const { data } = await sb.from("comments").select("id,user_id,body,created_at,profiles(handle,avatar_grad)").eq("post_id", postId).order("created_at", { ascending: true });
+  let rows = (data as unknown as { id: string; user_id: string; body: string; created_at: string; profiles: ProfileEmbed }[]) ?? [];
+  if (blocked?.size) rows = rows.filter((r) => !blocked.has(r.user_id));
+  return rows.map((r) => ({ id: r.id, body: r.body, createdAt: r.created_at, author: authorOf(r.profiles) }));
 }
 
 export async function addComment(postId: string, userId: string, body: string): Promise<Comment | null> {
@@ -127,6 +130,44 @@ export async function addAnnotation(postId: string, userId: string, a: Annotatio
   const sb = browserSupabase(); if (!sb) return false;
   const { error } = await sb.from("annotations").insert({
     post_id: postId, author_id: userId, yaw: a.yaw, pitch: a.pitch, label: a.label, kind: a.kind,
+  });
+  return !error;
+}
+
+// ── Trust & safety ──────────────────────────────────────────────────────────
+
+/** Who the current user has blocked (their content is filtered out everywhere). */
+export async function loadMyBlocks(userId: string): Promise<Set<string>> {
+  const sb = browserSupabase();
+  if (!sb) return new Set();
+  const { data } = await sb.from("blocks").select("blocked_id").eq("blocker_id", userId);
+  return new Set(((data as { blocked_id: string }[]) ?? []).map((r) => r.blocked_id));
+}
+
+export async function blockUser(blockerId: string, blockedId: string): Promise<boolean> {
+  const sb = browserSupabase(); if (!sb) return false;
+  const { error } = await sb.from("blocks").insert({ blocker_id: blockerId, blocked_id: blockedId });
+  return !error;
+}
+
+export async function unblockUser(blockerId: string, blockedId: string): Promise<boolean> {
+  const sb = browserSupabase(); if (!sb) return false;
+  const { error } = await sb.from("blocks").delete().eq("blocker_id", blockerId).eq("blocked_id", blockedId);
+  return !error;
+}
+
+export type ReportReason = "spam" | "harassment" | "hate" | "nudity" | "violence" | "illegal" | "other";
+export type ReportTarget = "post" | "comment" | "annotation" | "profile";
+
+/** File a moderation report. `postId` gives the moderator context (where it lives). */
+export async function fileReport(args: {
+  reporterId: string; targetType: ReportTarget; targetId: string;
+  postId?: string | null; reason: ReportReason; details?: string;
+}): Promise<boolean> {
+  const sb = browserSupabase(); if (!sb) return false;
+  const { error } = await sb.from("reports").insert({
+    reporter_id: args.reporterId, target_type: args.targetType, target_id: args.targetId,
+    post_id: args.postId ?? null, reason: args.reason, details: (args.details ?? "").slice(0, 1000),
   });
   return !error;
 }

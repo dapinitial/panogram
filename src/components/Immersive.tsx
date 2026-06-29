@@ -4,23 +4,28 @@ import { useEffect, useState } from "react";
 import type { Annotation, Comment, Post } from "@/lib/types";
 import { MEDIA } from "@/lib/types";
 import PanoViewer from "./PanoViewer";
+import ReportSheet from "./ReportSheet";
 import { track } from "@/lib/telemetry";
-import { addAnnotation, addComment, addFind, loadAnnotations, loadComments } from "@/lib/db";
+import { addAnnotation, addComment, addFind, loadAnnotations, loadComments, type ReportTarget } from "@/lib/db";
 import type { SelectedMarker } from "./PanoViewerImpl";
+
+type ReportSubject = { type: ReportTarget; id: string; postId?: string | null; label: string };
 
 const fmt = (n: number) => (n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n));
 const KINDS: Annotation["kind"][] = ["note", "cache", "portal"];
 
 export default function Immersive({
-  post, user, liked, isFollowing, onClose, onLike, onFollow, onAuthRequired,
+  post, user, liked, isFollowing, blocked, onClose, onLike, onFollow, onBlock, onAuthRequired,
 }: {
   post: Post;
   user: { id: string; email?: string } | null;
   liked: boolean;
   isFollowing: boolean;
+  blocked: Set<string>;
   onClose: () => void;
   onLike: () => void;
   onFollow: () => void;
+  onBlock: (targetId: string) => void;
   onAuthRequired: () => void;
 }) {
   const spec = MEDIA[post.type];
@@ -35,6 +40,10 @@ export default function Immersive({
   const [shared, setShared] = useState(false);
   const [cache, setCache] = useState<{ id: string; label: string } | null>(null);
   const [foundMsg, setFoundMsg] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [report, setReport] = useState<ReportSubject | null>(null);
+
+  const notMine = !!post.authorId && post.authorId !== user?.id;
 
   function onSelect(m: SelectedMarker) {
     if (m.kind === "cache" && m.id) setCache({ id: m.id, label: m.label || "cache" });
@@ -60,17 +69,23 @@ export default function Immersive({
   useEffect(() => {
     track("viewer_open", { postId: post.id, props: { type: post.type } });
     if (post.authorId) {
-      loadComments(post.id).then(setComments);
+      loadComments(post.id, blocked).then(setComments);
       loadAnnotations(post.id).then((a) => a.length && setAnnotations(a));
     }
-  }, [post.id, post.authorId, post.type]);
+  }, [post.id, post.authorId, post.type, blocked]);
 
   // Esc closes the pin composer first, otherwise the viewer.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && (pending ? setPending(null) : onClose());
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (report) setReport(null);
+      else if (menuOpen) setMenuOpen(false);
+      else if (pending) setPending(null);
+      else onClose();
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [pending, onClose]);
+  }, [pending, menuOpen, report, onClose]);
 
   function onPlace(yaw: number, pitch: number) {
     if (!user) { setAddMode(false); return onAuthRequired(); }
@@ -126,6 +141,31 @@ export default function Immersive({
             <button className="imm-close" onClick={share} aria-label="Share" title="Share this place" style={canFollow ? undefined : { marginLeft: "auto" }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><path d="m8.6 13.5 6.8 4M15.4 6.5 8.6 10.5" /></svg>
             </button>
+          )}
+          {post.authorId && (
+            <div className="imm-menu-wrap">
+              <button className="imm-close" onClick={() => setMenuOpen((v) => !v)} aria-label="More" title="More">⋯</button>
+              {menuOpen && (
+                <>
+                  <div className="menu-scrim" onClick={() => setMenuOpen(false)} />
+                  <div className="imm-menu glass">
+                    <button onClick={() => { setMenuOpen(false); setReport({ type: "post", id: post.id, postId: post.id, label: "this capture" }); }}>
+                      ⚑ Report capture
+                    </button>
+                    {notMine && (
+                      <button onClick={() => { setMenuOpen(false); setReport({ type: "profile", id: post.authorId!, postId: post.id, label: `@${post.author.handle}` }); }}>
+                        ⚑ Report @{post.author.handle}
+                      </button>
+                    )}
+                    {notMine && (
+                      <button className="danger" onClick={() => { setMenuOpen(false); user ? onBlock(post.authorId!) : onAuthRequired(); }}>
+                        ⛔ Block @{post.author.handle}
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           )}
           <button className="imm-close" onClick={onClose} aria-label="Exit">✕</button>
         </div>
@@ -197,7 +237,9 @@ export default function Immersive({
                 comments.map((c) => (
                   <div className="cmt" key={c.id}>
                     <div className="dot-av" style={{ background: c.author.grad, width: 26, height: 26 }}>{c.author.initials}</div>
-                    <div><div className="cmt-h">@{c.author.handle}</div><div className="cmt-b">{c.body}</div></div>
+                    <div style={{ flex: 1 }}><div className="cmt-h">@{c.author.handle}</div><div className="cmt-b">{c.body}</div></div>
+                    <button className="cmt-report" title="Report comment" aria-label="Report comment"
+                      onClick={() => (user ? setReport({ type: "comment", id: c.id, postId: post.id, label: "this comment" }) : onAuthRequired())}>⚑</button>
                   </div>
                 ))
               )}
@@ -210,6 +252,10 @@ export default function Immersive({
               </div>
             )}
           </aside>
+        )}
+
+        {report && (
+          <ReportSheet user={user} target={report} onClose={() => setReport(null)} onAuthRequired={onAuthRequired} />
         )}
       </div>
     </div>

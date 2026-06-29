@@ -15,7 +15,9 @@ export type EventName =
   | "save"
   | "filter_change"
   | "upload_open"
-  | "upload_publish";
+  | "upload_publish"
+  | "report"
+  | "block";
 
 // Stable-ish anonymous session id (per tab). No PII — just correlation.
 function sessionId(): string {

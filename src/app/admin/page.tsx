@@ -1,10 +1,49 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { MEDIA, type MediaType } from "@/lib/types";
+import ModerationQueue, { type ModReport } from "@/components/ModerationQueue";
 
 // Always render fresh per request — this is a live data view, never prerendered.
 export const dynamic = "force-dynamic";
 
 type EventRow = { name: string; session_id: string | null; post_id: string | null; created_at: string };
+type ReportRow = {
+  id: string; target_type: ModReport["targetType"]; target_id: string; post_id: string | null;
+  reason: string; details: string; created_at: string; reporter_id: string | null;
+};
+
+// Resolve human context (titles, handles, comment bodies) for the moderation queue.
+type AdminClient = NonNullable<ReturnType<typeof getSupabaseAdmin>>;
+async function buildModReports(admin: AdminClient, rows: ReportRow[]): Promise<ModReport[]> {
+  if (rows.length === 0) return [];
+  const postIds = [...new Set(rows.flatMap((r) => [r.post_id, r.target_type === "post" ? r.target_id : null]).filter(Boolean) as string[])];
+  const commentIds = rows.filter((r) => r.target_type === "comment").map((r) => r.target_id);
+  const profileIds = [...new Set([
+    ...rows.map((r) => r.reporter_id).filter(Boolean) as string[],
+    ...rows.filter((r) => r.target_type === "profile").map((r) => r.target_id),
+  ])];
+
+  const [posts, comments, profiles] = await Promise.all([
+    postIds.length ? admin.from("posts").select("id,title").in("id", postIds) : Promise.resolve({ data: [] }),
+    commentIds.length ? admin.from("comments").select("id,body").in("id", commentIds) : Promise.resolve({ data: [] }),
+    profileIds.length ? admin.from("profiles").select("id,handle").in("id", profileIds) : Promise.resolve({ data: [] }),
+  ]);
+  const titleOf = new Map(((posts.data as { id: string; title: string }[]) ?? []).map((p) => [p.id, p.title]));
+  const bodyOf = new Map(((comments.data as { id: string; body: string }[]) ?? []).map((c) => [c.id, c.body]));
+  const handleOf = new Map(((profiles.data as { id: string; handle: string }[]) ?? []).map((p) => [p.id, p.handle]));
+
+  return rows.map((r) => {
+    const postTitle = (r.post_id && titleOf.get(r.post_id)) || (r.target_type === "post" && titleOf.get(r.target_id)) || "";
+    let context = "";
+    if (r.target_type === "post") context = postTitle ? `“${postTitle}”` : "post";
+    else if (r.target_type === "comment") context = bodyOf.has(r.target_id) ? `“${bodyOf.get(r.target_id)}”` : "comment (deleted)";
+    else if (r.target_type === "annotation") context = postTitle ? `spatial tag on “${postTitle}”` : "spatial tag";
+    else context = handleOf.has(r.target_id) ? `@${handleOf.get(r.target_id)}` : "profile";
+    return {
+      id: r.id, targetType: r.target_type, targetId: r.target_id, reason: r.reason, details: r.details,
+      reporterHandle: (r.reporter_id && handleOf.get(r.reporter_id)) || "someone", context, createdAt: r.created_at,
+    };
+  });
+}
 
 const fmt = (n: number) => (n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k" : String(n));
 const pct = (n: number) => (n * 100).toFixed(n >= 0.1 ? 0 : 1) + "%";
@@ -53,17 +92,21 @@ export default async function AdminPage({
   let postTypes: MediaType[] = [];
   let postCount = 0;
   let userCount = 0;
+  let modReports: ModReport[] = [];
 
   if (admin) {
-    const [ev, posts, users] = await Promise.all([
+    const [ev, posts, users, reports] = await Promise.all([
       admin.from("events").select("name,session_id,post_id,created_at").order("created_at", { ascending: false }).limit(5000),
       admin.from("posts").select("type"),
       admin.from("profiles").select("id", { count: "exact", head: true }),
+      admin.from("reports").select("id,target_type,target_id,post_id,reason,details,created_at,reporter_id")
+        .in("status", ["open", "reviewing"]).order("created_at", { ascending: false }).limit(100),
     ]);
     events = (ev.data as EventRow[]) ?? [];
     postTypes = ((posts.data as { type: MediaType }[]) ?? []).map((p) => p.type);
     postCount = postTypes.length;
     userCount = users.count ?? 0;
+    modReports = await buildModReports(admin, (reports.data as ReportRow[]) ?? []);
   }
 
   // ── compute the metric tree ──────────────────────────────────────────────
@@ -147,6 +190,13 @@ export default async function AdminPage({
           <div className="kpi"><div className="kpi-v">{fmt(count("upload_publish"))}</div><div className="kpi-l">Captures published</div><div className="kpi-sub">supply side</div></div>
           <div className="kpi"><div className="kpi-v">{fmt(postCount)}</div><div className="kpi-l">Posts</div><div className="kpi-sub">{userCount} creators</div></div>
         </section>
+
+        {/* Moderation queue — safety first */}
+        <div className="card-x" style={{ marginBottom: 18 }}>
+          <h3>Moderation queue {modReports.length > 0 && <span className="mod-count">{modReports.length}</span>}</h3>
+          <div className="sub">Open user reports. Remove takes the content down and clears every report on it.</div>
+          <ModerationQueue reports={modReports} adminKey={gate ? (key ?? "") : ""} />
+        </div>
 
         <div className="panel-grid">
           {/* Funnel */}

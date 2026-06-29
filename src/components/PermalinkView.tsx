@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Post } from "@/lib/types";
 import { browserSupabase } from "@/lib/supabase-browser";
-import { loadMyEngagement, toggleLike, toggleFollow } from "@/lib/db";
+import { loadMyEngagement, loadMyBlocks, blockUser, toggleLike, toggleFollow } from "@/lib/db";
+import { track } from "@/lib/telemetry";
 import Immersive from "./Immersive";
 import AuthSheet from "./AuthSheet";
 
@@ -17,6 +18,7 @@ export default function PermalinkView({ post: initial }: { post: Post }) {
   const [liked, setLiked] = useState(false);
   const [following, setFollowing] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
+  const [blocked, setBlocked] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const sb = browserSupabase();
@@ -31,6 +33,7 @@ export default function PermalinkView({ post: initial }: { post: Post }) {
         const me = await loadMyEngagement(u.id);
         setLiked(me.liked.has(initial.id));
         if (initial.authorId) setFollowing(me.following.has(initial.authorId));
+        setBlocked(await loadMyBlocks(u.id));
       }
     })();
   }, [initial.id, initial.authorId]);
@@ -51,6 +54,13 @@ export default function PermalinkView({ post: initial }: { post: Post }) {
     await toggleFollow(post.authorId, user.id, on);
   }
 
+  async function onBlock(targetId: string) {
+    if (!user) return setAuthOpen(true);
+    track("block", { props: { target: targetId } });
+    await blockUser(user.id, targetId);
+    router.push("/");
+  }
+
   return (
     <>
       <Immersive
@@ -58,9 +68,11 @@ export default function PermalinkView({ post: initial }: { post: Post }) {
         user={user}
         liked={liked}
         isFollowing={following}
+        blocked={blocked}
         onClose={() => router.push("/")}
         onLike={onLike}
         onFollow={onFollow}
+        onBlock={onBlock}
         onAuthRequired={() => setAuthOpen(true)}
       />
       {authOpen && <AuthSheet onClose={() => setAuthOpen(false)} />}

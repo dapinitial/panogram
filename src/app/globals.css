@@ -383,6 +383,38 @@ body {
 .drawer-input .btn-upload { padding: 9px 15px; }
 @media (max-width: 560px) { .imm-rail { right: 10px; } .follow { font-size: 11px; padding: 7px 12px; } }
 
+/* ── trust & safety: overflow menu · report sheet ───────────────────────── */
+.imm-menu-wrap { position: relative; }
+.menu-scrim { position: fixed; inset: 0; z-index: 9; }
+.imm-menu { position: absolute; top: calc(100% + 8px); right: 0; z-index: 10; width: 230px;
+  padding: 6px; border-radius: var(--r-lg); display: flex; flex-direction: column; animation: fade 0.16s ease; }
+.imm-menu button { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; cursor: pointer;
+  padding: 11px 12px; border-radius: 10px; background: none; border: 0; color: var(--ink);
+  font-family: var(--font-b); font-size: 13.5px; transition: background 0.15s; }
+.imm-menu button:hover { background: rgba(255,255,255,0.07); }
+.imm-menu button.danger { color: var(--coral); }
+.imm-menu button.danger:hover { background: rgba(255,77,109,0.14); }
+
+.cmt-report { background: none; border: 0; cursor: pointer; align-self: flex-start; color: var(--ink-faint);
+  font-size: 12px; padding: 2px 4px; line-height: 1; opacity: 0; transition: opacity 0.15s, color 0.15s; }
+.cmt:hover .cmt-report { opacity: 1; }
+.cmt-report:hover { color: var(--coral); }
+
+.sheet-scrim { position: fixed; inset: 0; z-index: 12; display: grid; place-items: center; padding: 22px;
+  background: rgba(2,2,6,0.66); backdrop-filter: blur(3px); animation: fade 0.18s ease; }
+.report-sheet { width: 380px; max-width: 100%; padding: 22px; border-radius: var(--r-lg); }
+.report-sheet .eyebrow { font-family: var(--font-d); font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase; }
+.report-reasons { display: flex; flex-wrap: wrap; gap: 8px; }
+.report-details { width: 100%; margin-top: 12px; min-height: 64px; resize: vertical; padding: 11px 13px; border-radius: 11px;
+  color: var(--ink); background: var(--void-2); border: 1px solid var(--hair-bright); font-family: var(--font-b);
+  font-size: 13.5px; outline: none; }
+.report-details:focus { border-color: var(--pink); }
+.report-done { text-align: center; padding: 8px 4px; }
+.report-done h3 { font-family: var(--font-d); margin: 12px 0 4px; }
+.report-done p { color: var(--ink-dim); font-size: 13px; line-height: 1.55; }
+.report-check { width: 46px; height: 46px; margin: 0 auto; border-radius: 50%; display: grid; place-items: center;
+  font-size: 22px; color: #fff; background: var(--grad); box-shadow: 0 0 22px rgba(224,64,160,0.4); }
+
 /* ── notifications ──────────────────────────────────────────────────────── */
 .bell { position: relative; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; cursor: pointer;
   background: var(--panel); border: 1px solid var(--hair); color: var(--ink-dim); transition: color 0.18s, border-color 0.18s; }
@@ -546,6 +578,32 @@ a.who:hover .handle { color: var(--ink); }
 .act-meta { font-size: 11px; color: var(--ink-faint); margin-top: 2px; }
 .act-time { font-size: 11px; color: var(--ink-faint); white-space: nowrap; }
 .empty-x { padding: 30px 4px; text-align: center; color: var(--ink-faint); font-size: 13px; }
+
+/* ── admin: moderation queue ─────────────────────────────────────────────── */
+.mod-count { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 7px; margin-left: 8px;
+  border-radius: 999px; background: var(--coral); color: #fff; font-family: var(--font-d); font-size: 12px; vertical-align: middle; }
+.modq { display: flex; flex-direction: column; gap: 10px; }
+.mod-err { color: var(--coral); font-size: 12.5px; padding: 4px 0 8px; }
+.mod-row { display: flex; gap: 14px; align-items: flex-start; justify-content: space-between;
+  padding: 14px; border-radius: 14px; background: var(--void-2); border: 1px solid var(--hair); }
+.mod-main { min-width: 0; }
+.mod-tags { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+.mod-reason { font-family: var(--font-d); font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 3px 9px; border-radius: 999px; background: rgba(255,77,109,0.16); color: var(--coral); border: 1px solid rgba(255,77,109,0.3); }
+.mod-reason.r-spam { background: rgba(143,233,255,0.14); color: var(--holo); border-color: rgba(143,233,255,0.3); }
+.mod-reason.r-other { background: var(--panel-2); color: var(--ink-dim); border-color: var(--hair-bright); }
+.mod-type { font-family: var(--font-d); font-size: 11px; color: var(--ink-dim); }
+.mod-time { font-size: 11px; color: var(--ink-faint); }
+.mod-context { font-size: 14px; color: var(--ink); line-height: 1.45; overflow-wrap: anywhere; }
+.mod-details { font-size: 12.5px; color: var(--ink-dim); margin-top: 4px; line-height: 1.4; overflow-wrap: anywhere; }
+.mod-reporter { font-family: var(--font-d); font-size: 11px; color: var(--ink-faint); margin-top: 6px; }
+.mod-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.mod-actions .btn-sec { padding: 8px 13px; font-size: 12.5px; }
+.mod-remove { font-family: var(--font-d); font-size: 12.5px; font-weight: 600; cursor: pointer; white-space: nowrap;
+  color: #fff; padding: 8px 14px; border-radius: 11px; background: var(--coral); border: 1px solid transparent; }
+.mod-remove:hover { filter: brightness(1.08); }
+.mod-remove:disabled, .mod-actions .btn-sec:disabled { opacity: 0.5; cursor: default; }
+@media (max-width: 560px) { .mod-row { flex-direction: column; } .mod-actions { width: 100%; } .mod-actions button { flex: 1; } }
 
 .lock { max-width: 420px; margin: 16vh auto 0; text-align: center; padding: 34px 30px; border-radius: var(--r-lg); }
 .lock h1 { font-family: var(--font-d); font-weight: 600; font-size: 24px; margin: 14px 0 8px; }
