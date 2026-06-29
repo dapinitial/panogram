@@ -12,6 +12,7 @@ import Immersive from "@/components/Immersive";
 import Upload from "@/components/Upload";
 import AuthSheet from "@/components/AuthSheet";
 import Notifications from "@/components/Notifications";
+import Welcome from "@/components/Welcome";
 
 export default function Home() {
   const [tab, setTab] = useState<Tab>("Feed");
@@ -174,6 +175,7 @@ export default function Home() {
       {uploadOpen && <Upload user={user} onClose={() => setUploadOpen(false)} onPublish={publish} />}
       {authOpen && <AuthSheet onClose={() => setAuthOpen(false)} />}
       {notifOpen && <Notifications items={notifs} onClose={() => setNotifOpen(false)} />}
+      <Welcome />
     </>
   );
 }
