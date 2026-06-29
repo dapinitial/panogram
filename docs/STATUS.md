@@ -22,6 +22,15 @@ creator pages · activity notifications · telemetry → gated `/admin` data roo
 varied real demo panos · **trust & safety: report · block · admin moderation queue**. RLS enforced;
 storage authenticated-write; secret hook + `.githooks` active.
 
+## Legal / policy layer
+- Pages (static, spatial-styled via shared `LegalDoc` chrome): `/privacy`, `/terms`, `/guidelines`,
+  `/legal/dmca`. Guidelines map 1:1 to the in-app report reasons.
+- Surfaced via a site `Footer` (app shell + legal pages), an `AuthSheet` consent line (links Terms +
+  Privacy), and a "what's allowed" Guidelines link in the report sheet.
+- Operator: **Unakin LLC** · governing law **Washington, USA** · contact/abuse/DMCA **me@davidpuerto.com**.
+- ⚠️ Drafted as readable starting points, **not lawyer-reviewed** — get counsel's pass before public
+  launch (esp. Privacy + the UGC-license clause in Terms).
+
 ## Trust & safety (P0)
 - **Report** — `⋯` menu in the viewer reports a capture/creator; per-comment `⚑` reports a comment.
   Reason chips → `reports` table (RLS: file as self, admin-read).
