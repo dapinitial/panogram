@@ -14,7 +14,7 @@ export default function TermsPage() {
       updated="June 29, 2026"
       intro={
         <p>
-          These Terms are the agreement between you and [ENTITY] (&ldquo;<b>Panogram</b>,&rdquo;
+          These Terms are the agreement between you and Unakin LLC (&ldquo;<b>Panogram</b>,&rdquo;
           &ldquo;we,&rdquo; &ldquo;us&rdquo;) for using the Panogram service. By creating an account
           or using Panogram, you agree to them. If you do not agree, do not use the service.
         </p>
@@ -89,7 +89,7 @@ export default function TermsPage() {
 
       <h2>9. Limitation of liability</h2>
       <p>
-        To the fullest extent permitted by law, [ENTITY] will not be liable for any indirect,
+        To the fullest extent permitted by law, Unakin LLC will not be liable for any indirect,
         incidental, special, consequential or punitive damages, or for any loss of data, profits or
         goodwill, arising from your use of the service. Some jurisdictions do not allow these limits,
         so they may not fully apply to you.
@@ -107,11 +107,11 @@ export default function TermsPage() {
       <p>
         We may update these Terms; material changes will be reflected by the &ldquo;last
         updated&rdquo; date and, where appropriate, an in-app notice. These Terms are governed by the
-        laws of [JURISDICTION], and disputes will be handled in the courts of [JURISDICTION], except
+        laws of Washington, USA, and disputes will be handled in the courts of Washington, USA, except
         where local law gives you other rights.
       </p>
       <p>
-        Questions about these Terms? Contact <a href="mailto:[CONTACT]">[CONTACT]</a>.
+        Questions about these Terms? Contact <a href="mailto:me@davidpuerto.com">me@davidpuerto.com</a>.
       </p>
     </LegalDoc>
   );

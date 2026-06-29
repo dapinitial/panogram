@@ -22,7 +22,7 @@ export default function DmcaPage() {
     >
       <h2>Reporting infringement</h2>
       <p>
-        Send a written notice to our copyright agent at <a href="mailto:[CONTACT]">[CONTACT]</a> with
+        Send a written notice to our copyright agent at <a href="mailto:me@davidpuerto.com">me@davidpuerto.com</a> with
         the subject line &ldquo;Copyright Notice.&rdquo; To be valid, your notice should include:
       </p>
       <ol>
@@ -44,10 +44,10 @@ export default function DmcaPage() {
       <h2>Counter-notice</h2>
       <p>
         If you believe your content was removed by mistake or misidentification, you may send a
-        counter-notice to <a href="mailto:[CONTACT]">[CONTACT]</a> including your signature,
+        counter-notice to <a href="mailto:me@davidpuerto.com">me@davidpuerto.com</a> including your signature,
         identification of the removed material and where it appeared, a statement under penalty of
         perjury that you have a good-faith belief it was removed in error, your contact information,
-        and your consent to the jurisdiction of the courts in [JURISDICTION].
+        and your consent to the jurisdiction of the courts in Washington, USA.
       </p>
 
       <h2>Repeat infringers</h2>
@@ -61,7 +61,7 @@ export default function DmcaPage() {
         Some demonstration panoramas shown during early development may be sample or
         third-party images used for prototyping; these are being replaced with licensed and
         creator-owned content. If you believe a demo image is yours, contact{" "}
-        <a href="mailto:[CONTACT]">[CONTACT]</a> and we will remove it promptly.
+        <a href="mailto:me@davidpuerto.com">me@davidpuerto.com</a> and we will remove it promptly.
       </p>
     </LegalDoc>
   );

@@ -60,7 +60,7 @@ export default function GuidelinesPage() {
       <h2>If we get it wrong</h2>
       <p>
         Moderation isn&rsquo;t perfect. If you believe we removed something in error, contact{" "}
-        <a href="mailto:[CONTACT]">[CONTACT]</a> and we&rsquo;ll take another look.
+        <a href="mailto:me@davidpuerto.com">me@davidpuerto.com</a> and we&rsquo;ll take another look.
       </p>
     </LegalDoc>
   );

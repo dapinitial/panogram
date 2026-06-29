@@ -32,10 +32,8 @@ export default function LegalDoc({
         <div className="legal-body">{children}</div>
 
         <div className="legal-note">
-          This document is a plain-language starting point, not legal advice. Bracketed
-          placeholders such as <code>[ENTITY]</code>, <code>[CONTACT]</code> and{" "}
-          <code>[JURISDICTION]</code> must be completed, and the policies reviewed by counsel,
-          before public launch.
+          This document is a plain-language summary provided for transparency, not legal advice.
+          Please review it with qualified counsel before relying on it for your situation.
         </div>
       </main>
 

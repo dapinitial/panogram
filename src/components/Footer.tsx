@@ -16,10 +16,9 @@ export default function Footer() {
           <Link href="/privacy">Privacy</Link>
           <Link href="/terms">Terms</Link>
           <Link href="/legal/dmca">Copyright / DMCA</Link>
-          {/* TODO: replace with the real abuse/legal contact address */}
-          <a href="mailto:[CONTACT]">Contact</a>
+          <a href="mailto:me@davidpuerto.com">Contact</a>
         </nav>
-        <div className="foot-copy">© 2026 [ENTITY]. Stand inside the world.</div>
+        <div className="foot-copy">© 2026 Unakin LLC. Stand inside the world.</div>
       </div>
     </footer>
   );

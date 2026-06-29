@@ -23,8 +23,8 @@ export default function PrivacyPage() {
     >
       <h2>1. Who we are</h2>
       <p>
-        The service is operated by [ENTITY], located in [JURISDICTION]. For any privacy question,
-        access or deletion request, contact us at <a href="mailto:[CONTACT]">[CONTACT]</a>.
+        The service is operated by Unakin LLC, located in Washington, USA. For any privacy question,
+        access or deletion request, contact us at <a href="mailto:me@davidpuerto.com">me@davidpuerto.com</a>.
       </p>
 
       <h2>2. What we collect</h2>
@@ -103,7 +103,7 @@ export default function PrivacyPage() {
 
       <h2>7. Your choices &amp; rights</h2>
       <ul>
-        <li><b>Access, correction, deletion.</b> You can edit your profile and content in-app, and request access to or deletion of your personal data by emailing <a href="mailto:[CONTACT]">[CONTACT]</a>.</li>
+        <li><b>Access, correction, deletion.</b> You can edit your profile and content in-app, and request access to or deletion of your personal data by emailing <a href="mailto:me@davidpuerto.com">me@davidpuerto.com</a>.</li>
         <li><b>Location.</b> You can publish captures without precise coordinates; remove location from media before uploading if you do not want it shared.</li>
         <li><b>Blocking.</b> You can block other users so their content is hidden from you.</li>
         <li><b>Regional rights.</b> Depending on where you live (for example the EEA/UK under GDPR, or California under the CCPA/CPRA), you may have additional rights, including to object to or restrict processing, to portability, and to lodge a complaint with your data-protection authority.</li>
@@ -113,7 +113,7 @@ export default function PrivacyPage() {
       <p>
         Panogram is not for people under <b>13</b> (or the minimum digital-consent age in your
         country, where higher). We do not knowingly collect data from children below that age; if you
-        believe a child has provided us data, contact <a href="mailto:[CONTACT]">[CONTACT]</a> and we
+        believe a child has provided us data, contact <a href="mailto:me@davidpuerto.com">me@davidpuerto.com</a> and we
         will delete it.
       </p>
 
