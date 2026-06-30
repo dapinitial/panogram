@@ -31,6 +31,17 @@ storage authenticated-write; secret hook + `.githooks` active.
 - ⚠️ Drafted as readable starting points, **not lawyer-reviewed** — get counsel's pass before public
   launch (esp. Privacy + the UGC-license clause in Terms).
 
+## Monetization — the wedge (native in-world ads)
+- **Substrate made real**: tapping a `sponsored`/`product` placement opens an in-world ad card with a
+  CTA to the advertiser; tapping a `portal` placement peeks + teleports into another pano. Emits the
+  ad event vocab — `ad_impression` (placement rendered in-scene), `ad_peek`, `ad_dwell`, `ad_conversion`.
+- Annotation composer gains `sponsored`/`product` kinds + a destination URL (persisted via
+  `annotations.target_url` / `target_post_id` — already in the init schema, no migration).
+- 3 demo placements seeded in the feed (sponsored on Shinjuku, portal on Aurora→Atacama, product on
+  Grand Canyon) so the loop demos immediately.
+- `/admin` **Monetization panel**: impressions, CTR, conversions, portal peeks, and a clearly-modeled
+  $28-CPM run-rate — the fundraising data room. Revenue is labeled *modeled*, not booked.
+
 ## Trust & safety (P0)
 - **Report** — `⋯` menu in the viewer reports a capture/creator; per-comment `⚑` reports a comment.
   Reason chips → `reports` table (RLS: file as self, admin-read).
@@ -58,8 +69,9 @@ never committed. Per-project Supabase account isolation via `.envrc` + keychain.
 1. ~~**Trust & safety** — block / report / basic moderation.~~ **Built** (see above); pending prod
    `db push`. Follow-ups: report a creator from `/u/[handle]`, email alert on new reports, rate-limit
    report spam, "blocked users" management screen.
-2. **Wedge & monetization** — AI-native ad layer on the spatial annotations; mature `/admin` as the
-   fundraising data room.
+2. ~~**Wedge & monetization** — AI-native ad layer on the spatial annotations; `/admin` data room.~~
+   **Built** (see above). Follow-ups: real advertiser/campaign objects (vs. denormalized labels);
+   AI-native targeting/placement; charge a CPM; per-campaign breakdown in `/admin`.
 3. **Real content** — the artist's own panos (current demo images are **unlicensed placeholders** —
    clear licensing before public); smooth upload→share.
 4. Optional — seed demo activity for `/admin`; de-beta shipmate's Vercel path; 360-video (Phase 3);
