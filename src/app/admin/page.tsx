@@ -206,7 +206,7 @@ export default async function AdminPage({
         {/* North-star */}
         <section className="ns">
           <div className="eyebrow">North-star metric</div>
-          <div className="ns-val gradient-text">{northStar ? northStar.toFixed(1) : "—"}</div>
+          <div className="lcd lcd-lg"><span className="lcd-val">{northStar ? northStar.toFixed(1) : "—"}</span></div>
           <div className="ns-unit">immersive views per active visitor · last 7 days</div>
           <div className="ns-parts">
             <div className="ns-part"><b>{fmt(immersiveViews7d)}</b><span>Immersive views (7d)</span></div>
@@ -233,7 +233,7 @@ export default async function AdminPage({
               <p className="monz-sub">Sponsored placements and teleport portals live on the spatial annotation layer — measured end to end.</p>
             </div>
             <div className="monz-rev">
-              <div className="monz-rev-v gradient-text">{modeledSpendCents ? usd(modeledSpendCents) : "—"}</div>
+              <div className="lcd lcd-md"><span className="lcd-val">{modeledSpendCents ? usd(modeledSpendCents) : "—"}</span></div>
               <div className="monz-rev-l">modeled spend · {campStats.filter((c) => c.status === "active").length} active campaigns</div>
             </div>
           </div>
