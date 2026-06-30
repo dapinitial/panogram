@@ -269,11 +269,12 @@ body {
   position: relative; border-radius: var(--r-lg); overflow: hidden; cursor: pointer;
   border: 1px solid var(--hair-bright); background: var(--void-2);
   box-shadow: var(--shadow-card), var(--panel-hi);
-  transform: perspective(1000px) translateZ(0);
+  /* 2D-only transform: a 3D transform (rotateX/perspective) makes Chrome drop the
+     rounded overflow clip and show square corners on hover. */
   transition: transform 0.3s cubic-bezier(.2,.8,.2,1), border-color 0.3s, box-shadow 0.3s;
 }
 .card:hover {
-  transform: perspective(1000px) translateY(-7px) rotateX(2deg);
+  transform: translateY(-7px);
   border-color: var(--accent-line);
   box-shadow: 0 34px 64px -26px rgba(0, 0, 0, 0.95), 0 0 0 1px var(--accent-line), 0 0 40px -12px var(--glow);
 }
