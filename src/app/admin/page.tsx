@@ -5,7 +5,9 @@ import ModerationQueue, { type ModReport } from "@/components/ModerationQueue";
 // Always render fresh per request — this is a live data view, never prerendered.
 export const dynamic = "force-dynamic";
 
-type EventRow = { name: string; session_id: string | null; post_id: string | null; created_at: string };
+type EventRow = { name: string; session_id: string | null; post_id: string | null; created_at: string; props: Record<string, unknown> | null };
+type Advertiser = { id: string; name: string };
+type Campaign = { id: string; advertiser_id: string; name: string; cpm_cents: number; budget_cents: number | null; status: string };
 type ReportRow = {
   id: string; target_type: ModReport["targetType"]; target_id: string; post_id: string | null;
   reason: string; details: string; created_at: string; reporter_id: string | null;
@@ -93,20 +95,26 @@ export default async function AdminPage({
   let postCount = 0;
   let userCount = 0;
   let modReports: ModReport[] = [];
+  let advertisers: Advertiser[] = [];
+  let campaigns: Campaign[] = [];
 
   if (admin) {
-    const [ev, posts, users, reports] = await Promise.all([
-      admin.from("events").select("name,session_id,post_id,created_at").order("created_at", { ascending: false }).limit(5000),
+    const [ev, posts, users, reports, adv, camp] = await Promise.all([
+      admin.from("events").select("name,session_id,post_id,created_at,props").order("created_at", { ascending: false }).limit(5000),
       admin.from("posts").select("type"),
       admin.from("profiles").select("id", { count: "exact", head: true }),
       admin.from("reports").select("id,target_type,target_id,post_id,reason,details,created_at,reporter_id")
         .in("status", ["open", "reviewing"]).order("created_at", { ascending: false }).limit(100),
+      admin.from("advertisers").select("id,name"),
+      admin.from("campaigns").select("id,advertiser_id,name,cpm_cents,budget_cents,status"),
     ]);
     events = (ev.data as EventRow[]) ?? [];
     postTypes = ((posts.data as { type: MediaType }[]) ?? []).map((p) => p.type);
     postCount = postTypes.length;
     userCount = users.count ?? 0;
     modReports = await buildModReports(admin, (reports.data as ReportRow[]) ?? []);
+    advertisers = (adv.data as Advertiser[]) ?? [];
+    campaigns = (camp.data as Campaign[]) ?? [];
   }
 
   // ── compute the metric tree ──────────────────────────────────────────────
@@ -140,8 +148,25 @@ export default async function AdminPage({
   const adPeeks = count("ad_peek");
   const adConversions = count("ad_conversion");
   const adCtr = adImpressions ? adConversions / adImpressions : 0;
-  const CPM = 28; // modeled spatial-premium CPM (USD) — illustrative, not booked revenue
-  const modeledRevenue = (adImpressions / 1000) * CPM;
+
+  // Attribute ad events to campaigns via props.campaignId; spend is MODELED at each
+  // campaign's own CPM (this is the surface to actually bill).
+  const usd = (cents: number) => { const d = cents / 100; return "$" + (d >= 1000 ? fmt(d) : d.toFixed(2)); };
+  const advName = new Map(advertisers.map((a) => [a.id, a.name]));
+  const campStats = campaigns
+    .map((c) => {
+      const evs = events.filter((e) => (e.props as { campaignId?: string } | null)?.campaignId === c.id);
+      const imp = evs.filter((e) => e.name === "ad_impression").length;
+      const conv = evs.filter((e) => e.name === "ad_conversion").length;
+      const spendCents = (imp / 1000) * c.cpm_cents;
+      return {
+        id: c.id, name: c.name, advertiser: advName.get(c.advertiser_id) ?? "—", status: c.status,
+        cpm: c.cpm_cents / 100, imp, conv, ctr: imp ? conv / imp : 0, spendCents,
+        pacing: c.budget_cents ? Math.min(1, spendCents / c.budget_cents) : null,
+      };
+    })
+    .sort((a, b) => b.imp - a.imp || b.spendCents - a.spendCents);
+  const modeledSpendCents = campStats.reduce((s, c) => s + c.spendCents, 0);
 
   return (
     <>
@@ -208,8 +233,8 @@ export default async function AdminPage({
               <p className="monz-sub">Sponsored placements and teleport portals live on the spatial annotation layer — measured end to end.</p>
             </div>
             <div className="monz-rev">
-              <div className="monz-rev-v gradient-text">{adImpressions ? "$" + fmt(modeledRevenue) : "—"}</div>
-              <div className="monz-rev-l">modeled run-rate · ${CPM} CPM</div>
+              <div className="monz-rev-v gradient-text">{modeledSpendCents ? usd(modeledSpendCents) : "—"}</div>
+              <div className="monz-rev-l">modeled spend · {campStats.filter((c) => c.status === "active").length} active campaigns</div>
             </div>
           </div>
           <div className="monz-grid">
@@ -218,10 +243,33 @@ export default async function AdminPage({
             <div className="monz-kpi"><div className="monz-v">{adImpressions ? pct(adCtr) : "—"}</div><div className="monz-l">Click-through rate</div><div className="monz-x">conversions ÷ impressions</div></div>
             <div className="monz-kpi"><div className="monz-v">{fmt(adPeeks)}</div><div className="monz-l">Portal peeks</div><div className="monz-x">sponsored teleport intent</div></div>
           </div>
+
+          {campaigns.length > 0 && (
+            <div className="camp-table">
+              <div className="camp-row camp-head">
+                <span>Campaign</span><span>Impr.</span><span>CTR</span><span>CPM</span><span>Modeled spend</span><span>Budget pacing</span>
+              </div>
+              {campStats.map((c) => (
+                <div className="camp-row" key={c.id}>
+                  <span className="camp-name"><b>{c.name}</b><em>{c.advertiser}</em></span>
+                  <span>{fmt(c.imp)}</span>
+                  <span>{c.imp ? pct(c.ctr) : "—"}</span>
+                  <span>${c.cpm.toFixed(0)}</span>
+                  <span className="camp-spend">{usd(c.spendCents)}</span>
+                  <span className="camp-pace">
+                    {c.pacing === null ? <em>uncapped</em> : (
+                      <><span className="pace-track"><span className="pace-fill" style={{ width: `${Math.max(2, c.pacing * 100)}%` }} /></span>{pct(c.pacing)}</>
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
           {adImpressions === 0 && (
             <div className="monz-empty">No ad events yet — open a capture with a sponsored or portal tag (the demo feed has three) to light this up.</div>
           )}
-          <div className="monz-note">Revenue is <b>modeled</b> at a ${CPM} spatial-premium CPM to size the surface — not booked revenue.</div>
+          <div className="monz-note">Spend is <b>modeled</b> at each campaign&apos;s CPM to size the surface — not booked revenue.</div>
         </section>
 
         {/* Moderation queue — safety first */}

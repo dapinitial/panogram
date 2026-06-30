@@ -17,11 +17,11 @@ function markerOf(a: Annotation, i: number) {
     position: { yaw: a.yaw, pitch: a.pitch },
     html: `<div class="pg-marker pg-marker--${a.kind}"><span class="pg-marker-ring"></span><span class="pg-marker-label">${a.label || a.kind}</span></div>`,
     anchor: "center center",
-    data: { id: a.id, label: a.label, kind: a.kind, targetUrl: a.targetUrl, targetPostId: a.targetPostId },
+    data: { id: a.id, label: a.label, kind: a.kind, targetUrl: a.targetUrl, targetPostId: a.targetPostId, campaignId: a.campaignId },
   };
 }
 
-export type SelectedMarker = { id?: string; label?: string; kind?: string; targetUrl?: string; targetPostId?: string };
+export type SelectedMarker = { id?: string; label?: string; kind?: string; targetUrl?: string; targetPostId?: string; campaignId?: string };
 
 export default function PanoViewerImpl({
   post, annotations, addMode, onPlace, onSelect,

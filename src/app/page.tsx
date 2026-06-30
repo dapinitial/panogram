@@ -5,7 +5,7 @@ import { POSTS } from "@/lib/mock";
 import type { Post } from "@/lib/types";
 import { track } from "@/lib/telemetry";
 import { browserSupabase } from "@/lib/supabase-browser";
-import { loadFeed, loadMyEngagement, loadNotifications, loadMyBlocks, blockUser, toggleLike, toggleSave, toggleFollow, followerCount, type Notification } from "@/lib/db";
+import { loadFeed, loadMyEngagement, loadNotifications, loadMyBlocks, loadMyBlockedProfiles, blockUser, unblockUser, toggleLike, toggleSave, toggleFollow, followerCount, type Notification } from "@/lib/db";
 import Nav, { type Tab } from "@/components/Nav";
 import Feed from "@/components/Feed";
 import Immersive from "@/components/Immersive";
@@ -31,6 +31,7 @@ export default function Home() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [seen, setSeen] = useState("");
   const [blocked, setBlocked] = useState<Set<string>>(new Set());
+  const [blockedProfiles, setBlockedProfiles] = useState<{ id: string; handle: string; grad: string }[]>([]);
 
   const viewing = useMemo(() => posts.find((p) => p.id === viewingId) ?? null, [posts, viewingId]);
   const unread = notifs.filter((n) => n.createdAt > seen).length;
@@ -109,6 +110,20 @@ export default function Home() {
     await refresh(user.id);
   }
 
+  // Load the blocked-accounts list when the Profile tab is open.
+  useEffect(() => {
+    if (tab === "Profile" && user) loadMyBlockedProfiles(user.id).then(setBlockedProfiles);
+    else if (!user) setBlockedProfiles([]);
+  }, [tab, user, blocked]);
+
+  async function onUnblock(targetId: string) {
+    if (!user) return;
+    setBlocked((s) => { const n = new Set(s); n.delete(targetId); return n; });
+    setBlockedProfiles((ps) => ps.filter((p) => p.id !== targetId));
+    await unblockUser(user.id, targetId);
+    await refresh(user.id);
+  }
+
   function publish(post: Post) {
     setPosts((prev) => [post, ...prev]);
     setUploadOpen(false);
@@ -169,6 +184,24 @@ export default function Home() {
               )}
             </header>
             {user && (mine.length ? <Feed posts={mine} liked={liked} saved={saved} onOpen={setViewingId} onLike={onLike} onSave={onSave} bare /> : <p style={{ color: "var(--ink-faint)" }}>No captures yet — hit Capture to publish your first.</p>)}
+
+            {user && blockedProfiles.length > 0 && (
+              <section className="blocked-mgr">
+                <div className="eyebrow">Blocked accounts</div>
+                <p className="blocked-hint">You won&apos;t see their captures or comments. Unblock to restore.</p>
+                <div className="blocked-list">
+                  {blockedProfiles.map((b) => (
+                    <div className="blocked-row" key={b.id}>
+                      <div className="who">
+                        <div className="dot-av" style={{ background: b.grad }}>{b.handle[0]?.toUpperCase()}</div>
+                        <span className="handle">@{b.handle}</span>
+                      </div>
+                      <button className="btn-sec" onClick={() => onUnblock(b.id)}>Unblock</button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
           </>
         )}
       </main>

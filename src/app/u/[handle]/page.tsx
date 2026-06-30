@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { getProfileByHandle } from "@/lib/profile-server";
 import { MEDIA } from "@/lib/types";
 import FollowButton from "@/components/FollowButton";
+import ReportCreator from "@/components/ReportCreator";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,10 @@ export default async function CreatorPage({ params }: { params: Promise<{ handle
               <h1 style={{ fontSize: "clamp(28px,5vw,46px)", margin: 0 }}>{p.displayName}</h1>
               <div style={{ color: "var(--ink-faint)", fontFamily: "var(--font-d)", marginTop: 4 }}>@{p.handle}</div>
               {p.bio && <p style={{ marginTop: 12, maxWidth: "48ch" }}>{p.bio}</p>}
-              <FollowButton targetId={p.id} count={p.followerCount} />
+              <div className="prof-actions">
+                <FollowButton targetId={p.id} count={p.followerCount} />
+                <ReportCreator targetId={p.id} handle={p.handle} />
+              </div>
             </div>
           </div>
         </header>

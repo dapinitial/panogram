@@ -115,9 +115,9 @@ export async function addComment(postId: string, userId: string, body: string): 
 
 export async function loadAnnotations(postId: string): Promise<Annotation[]> {
   const sb = browserSupabase(); if (!sb) return [];
-  const { data } = await sb.from("annotations").select("id,yaw,pitch,label,kind,target_url,target_post_id").eq("post_id", postId);
-  return ((data as { id: string; yaw: number; pitch: number; label: string; kind: Annotation["kind"]; target_url: string | null; target_post_id: string | null }[]) ?? [])
-    .map((r) => ({ id: r.id, yaw: r.yaw, pitch: r.pitch, label: r.label, kind: r.kind, targetUrl: r.target_url ?? undefined, targetPostId: r.target_post_id ?? undefined }));
+  const { data } = await sb.from("annotations").select("id,yaw,pitch,label,kind,target_url,target_post_id,campaign_id").eq("post_id", postId);
+  return ((data as { id: string; yaw: number; pitch: number; label: string; kind: Annotation["kind"]; target_url: string | null; target_post_id: string | null; campaign_id: string | null }[]) ?? [])
+    .map((r) => ({ id: r.id, yaw: r.yaw, pitch: r.pitch, label: r.label, kind: r.kind, targetUrl: r.target_url ?? undefined, targetPostId: r.target_post_id ?? undefined, campaignId: r.campaign_id ?? undefined }));
 }
 
 /** Geocache loop: log that the user found a hidden cache annotation. */
@@ -146,6 +146,18 @@ export async function loadMyBlocks(userId: string): Promise<Set<string>> {
   return new Set(((data as { blocked_id: string }[]) ?? []).map((r) => r.blocked_id));
 }
 
+/** The profiles the current user has blocked — for the management screen. */
+export async function loadMyBlockedProfiles(userId: string): Promise<{ id: string; handle: string; grad: string }[]> {
+  const sb = browserSupabase();
+  if (!sb) return [];
+  const { data: rows } = await sb.from("blocks").select("blocked_id").eq("blocker_id", userId);
+  const ids = ((rows as { blocked_id: string }[]) ?? []).map((r) => r.blocked_id);
+  if (!ids.length) return [];
+  const { data: profs } = await sb.from("profiles").select("id,handle,avatar_grad").in("id", ids);
+  return ((profs as { id: string; handle: string; avatar_grad: string | null }[]) ?? [])
+    .map((p) => ({ id: p.id, handle: p.handle, grad: p.avatar_grad ?? DEFAULT_GRAD }));
+}
+
 export async function blockUser(blockerId: string, blockedId: string): Promise<boolean> {
   const sb = browserSupabase(); if (!sb) return false;
   const { error } = await sb.from("blocks").insert({ blocker_id: blockerId, blocked_id: blockedId });
@@ -161,17 +173,27 @@ export async function unblockUser(blockerId: string, blockedId: string): Promise
 export type ReportReason = "spam" | "harassment" | "hate" | "nudity" | "violence" | "illegal" | "other";
 export type ReportTarget = "post" | "comment" | "annotation" | "profile";
 
-/** File a moderation report. `postId` gives the moderator context (where it lives). */
+/** File a moderation report via the server route (inserts as the signed-in user
+ *  under RLS, then fires a best-effort alert email). `postId` gives moderator
+ *  context. `reporterId` is kept for the caller's convenience but the server
+ *  derives the real reporter from the session — it is not trusted from the client. */
 export async function fileReport(args: {
   reporterId: string; targetType: ReportTarget; targetId: string;
   postId?: string | null; reason: ReportReason; details?: string;
 }): Promise<boolean> {
-  const sb = browserSupabase(); if (!sb) return false;
-  const { error } = await sb.from("reports").insert({
-    reporter_id: args.reporterId, target_type: args.targetType, target_id: args.targetId,
-    post_id: args.postId ?? null, reason: args.reason, details: (args.details ?? "").slice(0, 1000),
-  });
-  return !error;
+  try {
+    const res = await fetch("/api/report", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        targetType: args.targetType, targetId: args.targetId,
+        postId: args.postId ?? null, reason: args.reason, details: (args.details ?? "").slice(0, 1000),
+      }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 const DEFAULT_GRAD = "linear-gradient(135deg,#ff6b35,#7c3aed)";

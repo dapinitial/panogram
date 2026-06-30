@@ -31,6 +31,7 @@ export interface Annotation {
   kind: "note" | "link" | "product" | "cache" | "sponsored" | "portal";
   targetUrl?: string;     // link / product / sponsored — tap-out destination
   targetPostId?: string;  // portal — teleport target pano
+  campaignId?: string;    // backing ad campaign (attributes impressions/conversions)
 }
 
 export interface Author {

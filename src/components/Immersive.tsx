@@ -14,8 +14,8 @@ type ReportSubject = { type: ReportTarget; id: string; postId?: string | null; l
 const fmt = (n: number) => (n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n));
 const KINDS: Annotation["kind"][] = ["note", "cache", "sponsored", "product", "portal"];
 
-type AdCard = { id?: string; label: string; url?: string; kind: string };
-type PortalCard = { id?: string; label: string; targetPostId?: string };
+type AdCard = { id?: string; label: string; url?: string; kind: string; campaignId?: string };
+type PortalCard = { id?: string; label: string; targetPostId?: string; campaignId?: string };
 const AD_KINDS = new Set(["sponsored", "product", "link"]);
 
 export default function Immersive({
@@ -58,21 +58,21 @@ export default function Immersive({
   function closeAd() {
     if (ad) {
       const ms = adOpenedAt.current ? Date.now() - adOpenedAt.current : 0;
-      if (ms > 250) track("ad_dwell", { postId: post.id, props: { kind: ad.kind, ms } });
+      if (ms > 250) track("ad_dwell", { postId: post.id, props: { kind: ad.kind, ms, campaignId: ad.campaignId } });
     }
     setAd(null);
   }
 
   function adConvert() {
     if (!ad) return;
-    track("ad_conversion", { postId: post.id, props: { kind: ad.kind, label: ad.label } });
+    track("ad_conversion", { postId: post.id, props: { kind: ad.kind, label: ad.label, campaignId: ad.campaignId } });
     if (ad.url) window.open(ad.url, "_blank", "noopener,noreferrer");
     closeAd();
   }
 
   function stepThroughPortal() {
     if (!portal) return;
-    track("ad_conversion", { postId: post.id, props: { kind: "portal", label: portal.label } });
+    track("ad_conversion", { postId: post.id, props: { kind: "portal", label: portal.label, campaignId: portal.campaignId } });
     if (portal.targetPostId && onTeleport) onTeleport(portal.targetPostId);
     setPortal(null);
   }
@@ -82,10 +82,10 @@ export default function Immersive({
       setCache({ id: m.id, label: m.label || "cache" });
     } else if (m.kind && AD_KINDS.has(m.kind)) {
       adOpenedAt.current = Date.now();
-      setAd({ id: m.id, label: m.label || "Sponsored", url: m.targetUrl, kind: m.kind });
+      setAd({ id: m.id, label: m.label || "Sponsored", url: m.targetUrl, kind: m.kind, campaignId: m.campaignId });
     } else if (m.kind === "portal") {
-      track("ad_peek", { postId: post.id, props: { label: m.label } });
-      setPortal({ id: m.id, label: m.label || "Portal", targetPostId: m.targetPostId });
+      track("ad_peek", { postId: post.id, props: { label: m.label, campaignId: m.campaignId } });
+      setPortal({ id: m.id, label: m.label || "Portal", targetPostId: m.targetPostId, campaignId: m.campaignId });
     }
   }
 
@@ -97,7 +97,7 @@ export default function Immersive({
       const key = `${post.id}:${a.id ?? `${a.kind}-${a.yaw.toFixed(2)}-${a.pitch.toFixed(2)}`}`;
       if (impressed.current.has(key)) return;
       impressed.current.add(key);
-      track("ad_impression", { postId: post.id, props: { kind: a.kind, label: a.label } });
+      track("ad_impression", { postId: post.id, props: { kind: a.kind, label: a.label, campaignId: a.campaignId } });
     });
   }, [annotations, post.id]);
 
