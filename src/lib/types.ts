@@ -29,6 +29,8 @@ export interface Annotation {
   pitch: number; // radians — sphere latitude
   label: string;
   kind: "note" | "link" | "product" | "cache" | "sponsored" | "portal";
+  targetUrl?: string;     // link / product / sponsored — tap-out destination
+  targetPostId?: string;  // portal — teleport target pano
 }
 
 export interface Author {

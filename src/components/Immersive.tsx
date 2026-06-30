@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Annotation, Comment, Post } from "@/lib/types";
 import { MEDIA } from "@/lib/types";
 import PanoViewer from "./PanoViewer";
@@ -12,10 +12,14 @@ import type { SelectedMarker } from "./PanoViewerImpl";
 type ReportSubject = { type: ReportTarget; id: string; postId?: string | null; label: string };
 
 const fmt = (n: number) => (n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n));
-const KINDS: Annotation["kind"][] = ["note", "cache", "portal"];
+const KINDS: Annotation["kind"][] = ["note", "cache", "sponsored", "product", "portal"];
+
+type AdCard = { id?: string; label: string; url?: string; kind: string };
+type PortalCard = { id?: string; label: string; targetPostId?: string };
+const AD_KINDS = new Set(["sponsored", "product", "link"]);
 
 export default function Immersive({
-  post, user, liked, isFollowing, blocked, onClose, onLike, onFollow, onBlock, onAuthRequired,
+  post, user, liked, isFollowing, blocked, onClose, onLike, onFollow, onBlock, onTeleport, onAuthRequired,
 }: {
   post: Post;
   user: { id: string; email?: string } | null;
@@ -26,6 +30,7 @@ export default function Immersive({
   onLike: () => void;
   onFollow: () => void;
   onBlock: (targetId: string) => void;
+  onTeleport?: (postId: string) => void;
   onAuthRequired: () => void;
 }) {
   const spec = MEDIA[post.type];
@@ -37,17 +42,64 @@ export default function Immersive({
   const [pending, setPending] = useState<{ yaw: number; pitch: number } | null>(null);
   const [label, setLabel] = useState("");
   const [kind, setKind] = useState<Annotation["kind"]>("note");
+  const [pinUrl, setPinUrl] = useState("");
   const [shared, setShared] = useState(false);
   const [cache, setCache] = useState<{ id: string; label: string } | null>(null);
   const [foundMsg, setFoundMsg] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [report, setReport] = useState<ReportSubject | null>(null);
+  const [ad, setAd] = useState<AdCard | null>(null);
+  const [portal, setPortal] = useState<PortalCard | null>(null);
+  const adOpenedAt = useRef(0);
+  const impressed = useRef<Set<string>>(new Set());
 
   const notMine = !!post.authorId && post.authorId !== user?.id;
 
-  function onSelect(m: SelectedMarker) {
-    if (m.kind === "cache" && m.id) setCache({ id: m.id, label: m.label || "cache" });
+  function closeAd() {
+    if (ad) {
+      const ms = adOpenedAt.current ? Date.now() - adOpenedAt.current : 0;
+      if (ms > 250) track("ad_dwell", { postId: post.id, props: { kind: ad.kind, ms } });
+    }
+    setAd(null);
   }
+
+  function adConvert() {
+    if (!ad) return;
+    track("ad_conversion", { postId: post.id, props: { kind: ad.kind, label: ad.label } });
+    if (ad.url) window.open(ad.url, "_blank", "noopener,noreferrer");
+    closeAd();
+  }
+
+  function stepThroughPortal() {
+    if (!portal) return;
+    track("ad_conversion", { postId: post.id, props: { kind: "portal", label: portal.label } });
+    if (portal.targetPostId && onTeleport) onTeleport(portal.targetPostId);
+    setPortal(null);
+  }
+
+  function onSelect(m: SelectedMarker) {
+    if (m.kind === "cache" && m.id) {
+      setCache({ id: m.id, label: m.label || "cache" });
+    } else if (m.kind && AD_KINDS.has(m.kind)) {
+      adOpenedAt.current = Date.now();
+      setAd({ id: m.id, label: m.label || "Sponsored", url: m.targetUrl, kind: m.kind });
+    } else if (m.kind === "portal") {
+      track("ad_peek", { postId: post.id, props: { label: m.label } });
+      setPortal({ id: m.id, label: m.label || "Portal", targetPostId: m.targetPostId });
+    }
+  }
+
+  // Count an impression once per ad-kind placement that renders in this scene —
+  // the brand was on-screen, whether or not the viewer taps it.
+  useEffect(() => {
+    annotations.forEach((a) => {
+      if (a.kind !== "sponsored" && a.kind !== "product" && a.kind !== "link" && a.kind !== "portal") return;
+      const key = `${post.id}:${a.id ?? `${a.kind}-${a.yaw.toFixed(2)}-${a.pitch.toFixed(2)}`}`;
+      if (impressed.current.has(key)) return;
+      impressed.current.add(key);
+      track("ad_impression", { postId: post.id, props: { kind: a.kind, label: a.label } });
+    });
+  }, [annotations, post.id]);
 
   async function markFound() {
     if (!user) return onAuthRequired();
@@ -79,23 +131,31 @@ export default function Immersive({
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (report) setReport(null);
+      else if (ad) closeAd();
+      else if (portal) setPortal(null);
       else if (menuOpen) setMenuOpen(false);
       else if (pending) setPending(null);
       else onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [pending, menuOpen, report, onClose]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending, menuOpen, report, ad, portal, onClose]);
 
   function onPlace(yaw: number, pitch: number) {
     if (!user) { setAddMode(false); return onAuthRequired(); }
     setPending({ yaw, pitch });
-    setLabel("");
+    setLabel(""); setPinUrl("");
   }
+
+  const kindNeedsUrl = kind === "sponsored" || kind === "product" || kind === "link";
 
   async function savePin() {
     if (!user || !pending || !label.trim() || !post.authorId) return;
-    const a: Annotation = { yaw: pending.yaw, pitch: pending.pitch, label: label.trim(), kind };
+    const a: Annotation = {
+      yaw: pending.yaw, pitch: pending.pitch, label: label.trim(), kind,
+      targetUrl: kindNeedsUrl && pinUrl.trim() ? pinUrl.trim() : undefined,
+    };
     const ok = await addAnnotation(post.id, user.id, a);
     if (ok) {
       setAnnotations((prev) => [...prev, a]);
@@ -185,6 +245,32 @@ export default function Immersive({
           </div>
         )}
 
+        {/* sponsored / product / link — native in-world ad */}
+        {ad && (
+          <div className="ad-card glass" role="dialog" aria-label="Sponsored">
+            <button className="ad-x" onClick={closeAd} aria-label="Dismiss">✕</button>
+            <div className="ad-eyebrow"><span className="ad-dot" />Sponsored{ad.kind === "product" ? " · Shop" : ""}</div>
+            <div className="ad-label">{ad.label}</div>
+            {ad.url && <div className="ad-host">{(() => { try { return new URL(ad.url).hostname.replace(/^www\./, ""); } catch { return ad.url; } })()}</div>}
+            <button className="ad-cta" onClick={adConvert}>
+              {ad.kind === "product" ? "Shop now" : ad.kind === "link" ? "Open" : "Visit"} →
+            </button>
+          </div>
+        )}
+
+        {/* portal — native sponsored teleport */}
+        {portal && (
+          <div className="ad-card glass portal-card" role="dialog" aria-label="Teleport">
+            <button className="ad-x" onClick={() => setPortal(null)} aria-label="Dismiss">✕</button>
+            <div className="ad-eyebrow portal"><span className="ad-dot" />Portal · Teleport</div>
+            <div className="ad-label">{portal.label}</div>
+            <p className="ad-sub">Step through into another place — without leaving immersion.</p>
+            <button className="ad-cta portal" disabled={!portal.targetPostId || !onTeleport} onClick={stepThroughPortal}>
+              {portal.targetPostId && onTeleport ? "Step inside →" : "Preview only"}
+            </button>
+          </div>
+        )}
+
         {/* add-mode hint */}
         {addMode && !pending && (
           <div className="imm-bottom"><div className="glasses-hint">⌖ Click anywhere in the scene to drop a spatial tag</div></div>
@@ -198,9 +284,13 @@ export default function Immersive({
           <div className="pin-compose glass">
             <div className="eyebrow">New spatial tag</div>
             <input autoFocus placeholder="What's here?" value={label} onChange={(e) => setLabel(e.target.value)} onKeyDown={(e) => e.key === "Enter" && savePin()} />
-            <div className="seg" style={{ marginTop: 10 }}>
+            <div className="seg" style={{ marginTop: 10, flexWrap: "wrap" }}>
               {KINDS.map((k) => <button key={k} className="seg-opt" data-active={kind === k} onClick={() => setKind(k)}>{k}</button>)}
             </div>
+            {kindNeedsUrl && (
+              <input style={{ marginTop: 10 }} placeholder="Destination URL (https://…)" value={pinUrl}
+                onChange={(e) => setPinUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && savePin()} />
+            )}
             <div className="sheet-foot" style={{ marginTop: 14 }}>
               <button className="btn-sec" onClick={() => setPending(null)}>Cancel</button>
               <button className="btn-upload" disabled={!label.trim()} onClick={savePin}>Drop tag</button>

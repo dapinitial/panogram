@@ -414,6 +414,28 @@ body {
 .report-check { width: 46px; height: 46px; margin: 0 auto; border-radius: 50%; display: grid; place-items: center;
   font-size: 22px; color: #fff; background: var(--grad); box-shadow: 0 0 22px rgba(224,64,160,0.4); }
 
+/* ── native in-world ads: sponsored card · portal teleport ───────────────── */
+.ad-card { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); z-index: 8;
+  width: 340px; max-width: 92vw; padding: 18px 18px 16px; border-radius: var(--r-lg);
+  border: 1px solid rgba(255,107,53,0.32); box-shadow: 0 18px 60px rgba(0,0,0,0.5), 0 0 40px rgba(255,107,53,0.08);
+  animation: adRise 0.22s ease; }
+.portal-card { border-color: rgba(224,64,160,0.4); box-shadow: 0 18px 60px rgba(0,0,0,0.5), 0 0 40px rgba(224,64,160,0.12); }
+@keyframes adRise { from { transform: translate(-50%, 10px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
+.ad-x { position: absolute; top: 12px; right: 12px; width: 26px; height: 26px; border-radius: 50%; cursor: pointer;
+  display: grid; place-items: center; background: rgba(255,255,255,0.06); border: 1px solid var(--hair-bright); color: var(--ink-dim); font-size: 13px; }
+.ad-x:hover { color: var(--ink); }
+.ad-eyebrow { display: inline-flex; align-items: center; gap: 7px; font-family: var(--font-d); font-size: 10px;
+  letter-spacing: 0.18em; text-transform: uppercase; color: #ff8a5c; }
+.ad-eyebrow.portal { color: var(--pink); }
+.ad-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+.ad-label { font-family: var(--font-d); font-size: 18px; font-weight: 600; line-height: 1.25; margin: 9px 0 4px; color: var(--ink); }
+.ad-host { font-size: 12px; color: var(--ink-faint); margin-bottom: 13px; }
+.ad-sub { font-size: 12.5px; color: var(--ink-dim); line-height: 1.5; margin: 4px 0 14px; }
+.ad-cta { width: 100%; font-family: var(--font-d); font-size: 13.5px; font-weight: 600; cursor: pointer; color: #fff;
+  padding: 11px 16px; border-radius: 12px; border: 0; background: var(--grad); }
+.ad-cta:hover { filter: brightness(1.07); }
+.ad-cta:disabled { opacity: 0.5; cursor: default; filter: none; }
+
 /* ── notifications ──────────────────────────────────────────────────────── */
 .bell { position: relative; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; cursor: pointer;
   background: var(--panel); border: 1px solid var(--hair); color: var(--ink-dim); transition: color 0.18s, border-color 0.18s; }
@@ -606,6 +628,27 @@ a.who:hover .handle { color: var(--ink); }
 .mod-remove:hover { filter: brightness(1.08); }
 .mod-remove:disabled, .mod-actions .btn-sec:disabled { opacity: 0.5; cursor: default; }
 @media (max-width: 560px) { .mod-row { flex-direction: column; } .mod-actions { width: 100%; } .mod-actions button { flex: 1; } }
+
+/* ── admin: monetization (the wedge) ─────────────────────────────────────── */
+.monz { margin-bottom: 18px; padding: 22px; border-radius: var(--r-lg);
+  background: linear-gradient(160deg, rgba(255,107,53,0.07), rgba(224,64,160,0.05) 60%, transparent);
+  border: 1px solid rgba(255,107,53,0.22); }
+.monz-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+.monz-head h3 { font-family: var(--font-d); font-weight: 600; font-size: 19px; letter-spacing: -0.01em; margin: 6px 0 4px; }
+.monz-sub { font-size: 12.5px; color: var(--ink-dim); max-width: 460px; line-height: 1.5; }
+.monz-rev { text-align: right; }
+.monz-rev-v { font-family: var(--font-d); font-weight: 700; font-size: 38px; line-height: 1; letter-spacing: -0.02em; }
+.monz-rev-l { font-size: 11px; color: var(--ink-faint); margin-top: 6px; }
+.monz-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 20px; }
+.monz-kpi { padding: 14px; border-radius: 14px; background: rgba(6,6,11,0.4); border: 1px solid var(--hair); }
+.monz-v { font-family: var(--font-d); font-weight: 600; font-size: 24px; letter-spacing: -0.01em; }
+.monz-l { font-size: 12.5px; color: var(--ink-dim); margin-top: 3px; }
+.monz-x { font-size: 11px; color: var(--ink-faint); margin-top: 4px; }
+.monz-empty { margin-top: 16px; padding: 12px 14px; border-radius: 12px; background: rgba(6,6,11,0.4);
+  border: 1px solid var(--hair); color: var(--ink-faint); font-size: 12.5px; }
+.monz-note { margin-top: 14px; font-size: 11.5px; color: var(--ink-faint); }
+.monz-note b { color: var(--ink-dim); }
+@media (max-width: 700px) { .monz-grid { grid-template-columns: repeat(2, 1fr); } }
 
 .lock { max-width: 420px; margin: 16vh auto 0; text-align: center; padding: 34px 30px; border-radius: var(--r-lg); }
 .lock h1 { font-family: var(--font-d); font-weight: 600; font-size: 24px; margin: 14px 0 8px; }

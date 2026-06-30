@@ -186,6 +186,7 @@ export default function Home() {
           onFollow={() => onFollow(viewing)}
           onBlock={onBlock}
           blocked={blocked}
+          onTeleport={(id) => setViewingId(id)}
           onAuthRequired={() => setAuthOpen(true)}
         />
       )}

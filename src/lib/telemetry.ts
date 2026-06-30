@@ -17,7 +17,11 @@ export type EventName =
   | "upload_open"
   | "upload_publish"
   | "report"
-  | "block";
+  | "block"
+  | "ad_impression"
+  | "ad_peek"
+  | "ad_dwell"
+  | "ad_conversion";
 
 // Stable-ish anonymous session id (per tab). No PII — just correlation.
 function sessionId(): string {

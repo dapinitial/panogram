@@ -135,6 +135,14 @@ export default async function AdminPage({
   // content mix
   const typeMix = postTypes.reduce<Record<string, number>>((a, t) => ((a[t] = (a[t] || 0) + 1), a), {});
 
+  // ── monetization: the native in-world ad layer (the wedge) ────────────────
+  const adImpressions = count("ad_impression");
+  const adPeeks = count("ad_peek");
+  const adConversions = count("ad_conversion");
+  const adCtr = adImpressions ? adConversions / adImpressions : 0;
+  const CPM = 28; // modeled spatial-premium CPM (USD) — illustrative, not booked revenue
+  const modeledRevenue = (adImpressions / 1000) * CPM;
+
   return (
     <>
       <div className="backdrop" />
@@ -189,6 +197,31 @@ export default async function AdminPage({
           <div className="kpi"><div className="kpi-v">{fmt(count("viewer_open"))}</div><div className="kpi-l">Immersions entered</div><div className="kpi-sub">viewer opens</div></div>
           <div className="kpi"><div className="kpi-v">{fmt(count("upload_publish"))}</div><div className="kpi-l">Captures published</div><div className="kpi-sub">supply side</div></div>
           <div className="kpi"><div className="kpi-v">{fmt(postCount)}</div><div className="kpi-l">Posts</div><div className="kpi-sub">{userCount} creators</div></div>
+        </section>
+
+        {/* Monetization — the wedge: native in-world ads on the spatial layer */}
+        <section className="monz">
+          <div className="monz-head">
+            <div>
+              <div className="eyebrow" style={{ color: "#ff8a5c" }}>Monetization · The wedge</div>
+              <h3>Native in-world ad layer</h3>
+              <p className="monz-sub">Sponsored placements and teleport portals live on the spatial annotation layer — measured end to end.</p>
+            </div>
+            <div className="monz-rev">
+              <div className="monz-rev-v gradient-text">{adImpressions ? "$" + fmt(modeledRevenue) : "—"}</div>
+              <div className="monz-rev-l">modeled run-rate · ${CPM} CPM</div>
+            </div>
+          </div>
+          <div className="monz-grid">
+            <div className="monz-kpi"><div className="monz-v">{fmt(adImpressions)}</div><div className="monz-l">Ad impressions</div><div className="monz-x">placements rendered in-scene</div></div>
+            <div className="monz-kpi"><div className="monz-v">{fmt(adConversions)}</div><div className="monz-l">Conversions</div><div className="monz-x">CTA taps → advertiser</div></div>
+            <div className="monz-kpi"><div className="monz-v">{adImpressions ? pct(adCtr) : "—"}</div><div className="monz-l">Click-through rate</div><div className="monz-x">conversions ÷ impressions</div></div>
+            <div className="monz-kpi"><div className="monz-v">{fmt(adPeeks)}</div><div className="monz-l">Portal peeks</div><div className="monz-x">sponsored teleport intent</div></div>
+          </div>
+          {adImpressions === 0 && (
+            <div className="monz-empty">No ad events yet — open a capture with a sponsored or portal tag (the demo feed has three) to light this up.</div>
+          )}
+          <div className="monz-note">Revenue is <b>modeled</b> at a ${CPM} spatial-premium CPM to size the surface — not booked revenue.</div>
         </section>
 
         {/* Moderation queue — safety first */}

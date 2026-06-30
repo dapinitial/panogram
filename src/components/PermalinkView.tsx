@@ -73,6 +73,7 @@ export default function PermalinkView({ post: initial }: { post: Post }) {
         onLike={onLike}
         onFollow={onFollow}
         onBlock={onBlock}
+        onTeleport={(id) => router.push(`/p/${id}`)}
         onAuthRequired={() => setAuthOpen(true)}
       />
       {authOpen && <AuthSheet onClose={() => setAuthOpen(false)} />}

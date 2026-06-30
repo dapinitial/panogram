@@ -34,12 +34,15 @@ export const POSTS: Post[] = [
     id: "2", type: "panoramic_photo", title: "Shinjuku at 3am", location: "Tokyo, Japan",
     author: U.aiko, poster: "linear-gradient(135deg,#1a0010,#5b0030 50%,#ff2b6b)",
     panoUrl: PANO.park, likes: 842, comments: 31, saves: 119,
+    // Native in-world ad: a sponsored placement anchored in the scene (the wedge).
+    annotations: [{ yaw: 0.6, pitch: 0.0, label: "Sapporo — taste the city", kind: "sponsored", targetUrl: "https://www.sapporobeer.com" }],
   },
   {
     id: "3", type: "360_video", title: "Aurora drift", location: "Iceland",
     author: U.yuki, poster: "radial-gradient(120% 100% at 70% 0%,#003826,#04150f 55%,#021008)",
     panoUrl: PANO.alpineSm, likes: 5540, comments: 231, saves: 980,
-    annotations: [{ yaw: -0.7, pitch: 0.2, label: "Full Moon party — peer in?", kind: "portal" }],
+    // Sponsored teleport: tap → step into another pano (id "6", the Milky Way core).
+    annotations: [{ yaw: -0.7, pitch: 0.2, label: "Step into the Atacama sky", kind: "portal", targetPostId: "6" }],
   },
   {
     id: "4", type: "180_photo", title: "Sahara, last light", location: "Erg Chebbi, Morocco",
@@ -66,5 +69,7 @@ export const POSTS: Post[] = [
     id: "8", type: "panoramic_photo", title: "Grand Canyon rim", location: "Arizona, USA",
     author: U.sol, poster: "linear-gradient(135deg,#1a0800,#6b2000 50%,#e07838)",
     panoUrl: PANO.desert, likes: 2890, comments: 98, saves: 445,
+    // Immersive commerce: tap the placement → shop the experience.
+    annotations: [{ yaw: 0.4, pitch: -0.1, label: "Rim helicopter tour — book", kind: "product", targetUrl: "https://www.papillon.com" }],
   },
 ];

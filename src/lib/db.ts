@@ -115,8 +115,9 @@ export async function addComment(postId: string, userId: string, body: string): 
 
 export async function loadAnnotations(postId: string): Promise<Annotation[]> {
   const sb = browserSupabase(); if (!sb) return [];
-  const { data } = await sb.from("annotations").select("id,yaw,pitch,label,kind").eq("post_id", postId);
-  return (data as Annotation[]) ?? [];
+  const { data } = await sb.from("annotations").select("id,yaw,pitch,label,kind,target_url,target_post_id").eq("post_id", postId);
+  return ((data as { id: string; yaw: number; pitch: number; label: string; kind: Annotation["kind"]; target_url: string | null; target_post_id: string | null }[]) ?? [])
+    .map((r) => ({ id: r.id, yaw: r.yaw, pitch: r.pitch, label: r.label, kind: r.kind, targetUrl: r.target_url ?? undefined, targetPostId: r.target_post_id ?? undefined }));
 }
 
 /** Geocache loop: log that the user found a hidden cache annotation. */
@@ -130,6 +131,7 @@ export async function addAnnotation(postId: string, userId: string, a: Annotatio
   const sb = browserSupabase(); if (!sb) return false;
   const { error } = await sb.from("annotations").insert({
     post_id: postId, author_id: userId, yaw: a.yaw, pitch: a.pitch, label: a.label, kind: a.kind,
+    target_url: a.targetUrl ?? null, target_post_id: a.targetPostId ?? null,
   });
   return !error;
 }
