@@ -31,6 +31,23 @@ storage authenticated-write; secret hook + `.githooks` active.
 - ⚠️ Drafted as readable starting points, **not lawyer-reviewed** — get counsel's pass before public
   launch (esp. Privacy + the UGC-license clause in Terms).
 
+## Monetization v2 — campaigns (shipped)
+- `advertisers` + `campaigns` tables (cpm_cents, budget_cents, status) — admin-read RLS, secret-key
+  writes; `annotations.campaign_id` FK. Migration `20260630011717_ad_campaigns.sql` (3 demo
+  advertisers/campaigns seeded with fixed UUIDs the demo placements reference).
+- Ad events carry `props.campaignId`; `/admin` Monetization panel has a **per-campaign breakdown**
+  (advertiser · impressions · CTR · CPM · modeled spend at its own CPM · budget pacing). Headline =
+  summed modeled spend across active campaigns. **Modeled, not booked.**
+- Next: let creators/advertisers create campaigns in-app + assign placements; real CPM billing.
+
+## Trust & safety follow-ups (shipped)
+- Report a creator from `/u/[handle]` (`ReportCreator`).
+- Reports file via `POST /api/report` — inserts as the signed-in user (RLS), reporter derived from
+  session (not client-trusted), then fires a best-effort Resend alert to `REPORT_ALERT_TO`
+  (default `me@davidpuerto.com`). Note: Resend test mode only delivers to the account-owner email —
+  needs a verified domain (or set `REPORT_ALERT_TO` to the Resend account email) to actually land.
+- Blocked-accounts manager in the Profile tab (one-tap unblock).
+
 ## Monetization — the wedge (native in-world ads)
 - **Substrate made real**: tapping a `sponsored`/`product` placement opens an in-world ad card with a
   CTA to the advertiser; tapping a `portal` placement peeks + teleports into another pano. Emits the
