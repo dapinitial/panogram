@@ -28,7 +28,7 @@ export default function Welcome() {
         <ul className="welcome-steps">
           <li><span className="ws-i">◉</span> Tap any post to <b>teleport inside</b> it</li>
           <li><span className="ws-i">⟲</span> <b>Drag</b> to look around — full 360°, all around you</li>
-          <li><span className="ws-i" style={{ color: "var(--holo)" }}>◎</span> Tap the glowing <b>tags</b> to discover what&apos;s there</li>
+          <li><span className="ws-i" style={{ color: "var(--accent)" }}>◎</span> Tap the glowing <b>tags</b> to discover what&apos;s there</li>
         </ul>
         <button className="btn-upload welcome-go" onClick={dismiss}>Start exploring</button>
         <div className="welcome-foot">…or hit <b>Capture</b> to drop your own panorama in.</div>

@@ -228,7 +228,7 @@ export default async function AdminPage({
         <section className="monz">
           <div className="monz-head">
             <div>
-              <div className="eyebrow" style={{ color: "#ff8a5c" }}>Monetization · The wedge</div>
+              <div className="eyebrow" style={{ color: "var(--accent)" }}>Monetization · The wedge</div>
               <h3>Native in-world ad layer</h3>
               <p className="monz-sub">Sponsored placements and teleport portals live on the spatial annotation layer — measured end to end.</p>
             </div>

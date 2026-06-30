@@ -114,7 +114,7 @@ export default function Upload({
             </>
           ) : (
             <div className="chamber-empty">
-              <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="var(--holo)" strokeWidth="1.5">
+              <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5">
                 <circle cx="12" cy="12" r="9" opacity="0.5" />
                 <path d="M12 8v8M8 12h8" />
               </svg>

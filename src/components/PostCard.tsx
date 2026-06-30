@@ -41,9 +41,9 @@ export default function PostCard({
         )}
 
         <div className="enter" aria-hidden>
-          <svg className="reticle" viewBox="0 0 24 24" fill="none" stroke="var(--holo)" strokeWidth="1.4">
+          <svg className="reticle" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.4">
             <circle cx="12" cy="12" r="7" opacity="0.6" />
-            <circle cx="12" cy="12" r="1.6" fill="var(--holo)" stroke="none" />
+            <circle cx="12" cy="12" r="1.6" fill="var(--accent)" stroke="none" />
             <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
           </svg>
         </div>
