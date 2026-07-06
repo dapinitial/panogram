@@ -510,6 +510,11 @@ body {
 .map-empty {
   position: absolute; inset: auto 24px 24px 24px; padding: 18px 22px; border-radius: 14px;
 }
+.map-basemaps {
+  position: absolute; top: 14px; left: 14px; padding: 4px;
+  background: rgba(6,6,11,0.7); border: 1px solid var(--hair-bright); border-radius: 12px;
+  backdrop-filter: blur(8px);
+}
 .map-empty p { color: var(--ink-dim); font-size: 13px; line-height: 1.55; margin-top: 6px; }
 
 /* upload chamber: capture-geo detected chip */

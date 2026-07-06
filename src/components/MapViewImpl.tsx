@@ -1,32 +1,57 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { Post } from "@/lib/types";
 import { track } from "@/lib/telemetry";
 
 // The Atlas: every geo-tagged capture as a pin on a world map — the "world,
-// not feed" surface the spatial layer builds toward. Dark Carto raster tiles
-// match the void theme; free with attribution, no API key.
+// not feed" surface the spatial layer builds toward. Three free basemaps, no
+// API keys: the void (Carto dark, matches the theme), USGS topo (the layer
+// Gaia-class apps are built on), and OpenTopoMap terrain.
 
-const STYLE: maplibregl.StyleSpecification = {
-  version: 8,
-  sources: {
-    carto: {
-      type: "raster",
-      tiles: ["a", "b", "c"].map((s) => `https://${s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png`),
-      tileSize: 256,
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors · © <a href="https://carto.com/attributions">CARTO</a>',
-    },
-  },
-  layers: [{ id: "carto", type: "raster", source: "carto" }],
-};
+const OSM_ATTR = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+function rasterStyle(tiles: string[], attribution: string, tileSize = 256): maplibregl.StyleSpecification {
+  return {
+    version: 8,
+    sources: { base: { type: "raster", tiles, tileSize, attribution } },
+    layers: [{ id: "base", type: "raster", source: "base" }],
+  };
+}
+
+const BASEMAPS = {
+  void: rasterStyle(
+    ["a", "b", "c"].map((s) => `https://${s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png`),
+    `${OSM_ATTR} · © <a href="https://carto.com/attributions">CARTO</a>`,
+  ),
+  topo: rasterStyle(
+    ["https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}"],
+    '© <a href="https://www.usgs.gov/">USGS</a> The National Map',
+  ),
+  terrain: rasterStyle(
+    ["a", "b", "c"].map((s) => `https://${s}.tile.opentopomap.org/{z}/{x}/{y}.png`),
+    `${OSM_ATTR} · © <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)`,
+  ),
+} as const;
+type BasemapKey = keyof typeof BASEMAPS;
+const BASEMAP_LABELS: Record<BasemapKey, string> = { void: "Void", topo: "Topo", terrain: "Terrain" };
 
 export default function MapViewImpl({ posts, onOpen }: { posts: Post[]; onOpen: (id: string) => void }) {
   const box = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<maplibregl.Map | null>(null);
   const onOpenRef = useRef(onOpen);
   useEffect(() => { onOpenRef.current = onOpen; });
+
+  const [basemap, setBasemap] = useState<BasemapKey>(() =>
+    (typeof window !== "undefined" && (localStorage.getItem("pg_basemap") as BasemapKey)) || "void");
+
+  function pickBasemap(k: BasemapKey) {
+    setBasemap(k);
+    localStorage.setItem("pg_basemap", k);
+    mapRef.current?.setStyle(BASEMAPS[k]); // markers are DOM overlays — they survive
+    track("filter_change", { props: { basemap: k } });
+  }
 
   const geoPosts = posts.filter((p) => p.captureLat != null && p.captureLng != null);
 
@@ -34,11 +59,12 @@ export default function MapViewImpl({ posts, onOpen }: { posts: Post[]; onOpen: 
     if (!box.current) return;
     const map = new maplibregl.Map({
       container: box.current,
-      style: STYLE,
+      style: BASEMAPS[(localStorage.getItem("pg_basemap") as BasemapKey) || "void"] ?? BASEMAPS.void,
       center: [-100, 40],
       zoom: 2.2,
       attributionControl: { compact: true },
     });
+    mapRef.current = map;
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
 
     const bounds = new maplibregl.LngLatBounds();
@@ -56,7 +82,7 @@ export default function MapViewImpl({ posts, onOpen }: { posts: Post[]; onOpen: 
     }
     if (geoPosts.length) map.fitBounds(bounds, { padding: 80, maxZoom: 11, duration: 0 });
 
-    return () => map.remove();
+    return () => { mapRef.current = null; map.remove(); };
     // Re-mounting per posts change is fine at prototype scale.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [posts.length]);
@@ -64,6 +90,13 @@ export default function MapViewImpl({ posts, onOpen }: { posts: Post[]; onOpen: 
   return (
     <div className="map-wrap">
       <div ref={box} className="map-stage" />
+      <div className="map-basemaps seg">
+        {(Object.keys(BASEMAPS) as BasemapKey[]).map((k) => (
+          <button key={k} className="seg-opt" data-active={basemap === k} onClick={() => pickBasemap(k)}>
+            {BASEMAP_LABELS[k]}
+          </button>
+        ))}
+      </div>
       {geoPosts.length === 0 && (
         <div className="map-empty glass">
           <div className="eyebrow">No located captures yet</div>
