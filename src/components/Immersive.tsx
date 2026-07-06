@@ -64,8 +64,10 @@ export default function Immersive({
   // Sun layer (deterministic — lib/sun.ts). Null when the post has no capture geo.
   const sunPath = useMemo(() => sunPathForPano(post), [post]);
   const [sunOn, setSunOn] = useState(false);
-  // Avalanche forecast chip — shown only when an active rating covers the spot.
-  const [avy, setAvy] = useState<{ danger: string; dangerLevel: number; link: string; name: string } | null>(null);
+  // Avalanche forecast chip — shown only when an active rating covers the
+  // spot. Keyed by post id so a stale chip never bleeds across teleports.
+  const [avyState, setAvyState] = useState<{ postId: string; zone: { danger: string; dangerLevel: number; link: string; name: string } } | null>(null);
+  const avy = avyState?.postId === post.id ? avyState.zone : null;
   // Peak labels (deterministic — OSM peaks placed by bearing math).
   const [peaks, setPeaks] = useState<PeakMarker[] | null>(null);
   const [peaksOn, setPeaksOn] = useState(false);
@@ -246,11 +248,11 @@ export default function Immersive({
     }
     // Avalanche forecast for the capture spot (server-cached; chip renders
     // only for an active in-season rating).
-    setAvy(null);
     if (post.captureLat != null && post.captureLng != null) {
+      const id = post.id;
       fetch(`/api/avalanche?lat=${post.captureLat}&lng=${post.captureLng}`)
         .then((r) => r.json())
-        .then((d) => { if (d.zone && !d.zone.offSeason && d.zone.dangerLevel >= 1) setAvy(d.zone); })
+        .then((d) => { if (d.zone && !d.zone.offSeason && d.zone.dangerLevel >= 1) setAvyState({ postId: id, zone: d.zone }); })
         .catch(() => {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
