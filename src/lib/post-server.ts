@@ -8,6 +8,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type Row = {
   id: string; author_id: string; type: Post["type"]; title: string;
   location: string | null; description: string | null; storage_path: string | null;
+  capture_lat: number | null; capture_lng: number | null; capture_heading: number | null;
   profiles: { handle: string; avatar_grad: string | null } | null;
 };
 
@@ -18,7 +19,7 @@ export async function getPostById(id: string): Promise<(Post & { description: st
   const sb = await supabaseServer();
   const { data } = await sb
     .from("posts")
-    .select("id,author_id,type,title,location,description,storage_path,profiles(handle,avatar_grad)")
+    .select("id,author_id,type,title,location,description,storage_path,capture_lat,capture_lng,capture_heading,profiles(handle,avatar_grad)")
     .eq("id", id)
     .maybeSingle();
   if (!data) return null;
@@ -34,5 +35,7 @@ export async function getPostById(id: string): Promise<(Post & { description: st
     panoUrl: pano,
     imageUrl,
     likes: 0, comments: 0, saves: 0,
+    captureLat: r.capture_lat ?? undefined, captureLng: r.capture_lng ?? undefined,
+    captureHeading: r.capture_heading ?? undefined,
   };
 }

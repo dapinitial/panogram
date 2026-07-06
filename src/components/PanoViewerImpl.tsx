@@ -8,6 +8,7 @@ import "@photo-sphere-viewer/markers-plugin/index.css";
 import type { Annotation, Post } from "@/lib/types";
 import { MEDIA } from "@/lib/types";
 import { track } from "@/lib/telemetry";
+import type { SunPath } from "@/lib/sun";
 
 // Real equirectangular renderer. Annotations are PSV markers (the spatial layer).
 // In add-mode, clicking the sphere reports the yaw/pitch so a new tag can be placed.
@@ -47,16 +48,36 @@ function markerOf(a: Annotation, i: number) {
   };
 }
 
+// The deterministic sun layer (VISION §3): today's arc across THIS pano plus
+// rise/set anchors on the horizon — gold, dotted, unmistakably "time" not "beta".
+function sunMarkersOf(sun: SunPath) {
+  const t = (d: Date) => d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const markers: object[] = [
+    { id: "sun-rise", position: { yaw: sun.riseYaw, pitch: 0 }, anchor: "center center", data: { kind: "sun" },
+      html: `<div class="pg-marker pg-marker--sun"><span class="pg-marker-ring"></span><span class="pg-marker-label">☀ rises ${t(sun.sunrise)}</span></div>` },
+    { id: "sun-set", position: { yaw: sun.setYaw, pitch: 0 }, anchor: "center center", data: { kind: "sun" },
+      html: `<div class="pg-marker pg-marker--sun"><span class="pg-marker-ring"></span><span class="pg-marker-label">☾ sets ${t(sun.sunset)}</span></div>` },
+  ];
+  if (sun.path.length > 1) {
+    markers.push({
+      id: "sun-arc", polyline: sun.path, tooltip: "Today's sun path", data: { kind: "sun" },
+      svgStyle: { stroke: "rgba(255,205,100,0.9)", strokeWidth: "3px", strokeLinecap: "round", strokeDasharray: "1 10", fill: "none" },
+    });
+  }
+  return markers;
+}
+
 export type SelectedMarker = { id?: string; label?: string; kind?: string; targetUrl?: string; targetPostId?: string; campaignId?: string };
 
 export default function PanoViewerImpl({
-  post, annotations, addMode, onPlace, onSelect,
+  post, annotations, addMode, onPlace, onSelect, sunPath,
 }: {
   post: Post;
   annotations: Annotation[];
   addMode: boolean;
   onPlace: (yaw: number, pitch: number) => void;
   onSelect: (m: SelectedMarker) => void;
+  sunPath?: SunPath | null;
 }) {
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
@@ -65,13 +86,15 @@ export default function PanoViewerImpl({
   const draggedOnce = useRef(false);
   const addModeRef = useRef(addMode);
   const onPlaceRef = useRef(onPlace);
+  const sunRef = useRef(sunPath);
   addModeRef.current = addMode;
   onPlaceRef.current = onPlace;
+  sunRef.current = sunPath;
 
   // Push marker changes imperatively so the panorama image never reloads.
   useEffect(() => {
-    markersRef.current?.setMarkers(annotations.map(markerOf));
-  }, [annotations]);
+    markersRef.current?.setMarkers([...annotations.map(markerOf), ...(sunPath ? sunMarkersOf(sunPath) : [])]);
+  }, [annotations, sunPath]);
 
   const onReady = useCallback(
     (instance: unknown) => {
@@ -79,9 +102,10 @@ export default function PanoViewerImpl({
       const viewer = instance as any;
       const mp = viewer.getPlugin(MarkersPlugin);
       markersRef.current = mp;
-      mp?.setMarkers(annotations.map(markerOf));
+      mp?.setMarkers([...annotations.map(markerOf), ...(sunRef.current ? sunMarkersOf(sunRef.current) : [])]);
 
       mp?.addEventListener("select-marker", (e: { marker: { data?: SelectedMarker } }) => {
+        if (e.marker?.data?.kind === "sun") return; // the sun is not an annotation
         track("annotation_tap", { postId: post.id, props: { label: e.marker?.data?.label } });
         if (e.marker?.data) onSelectRef.current(e.marker.data);
       });

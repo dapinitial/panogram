@@ -16,6 +16,7 @@ function authorOf(p: ProfileEmbed): Author {
 type PostRow = {
   id: string; author_id: string; type: Post["type"]; title: string;
   location: string | null; storage_path: string | null; profiles: ProfileEmbed;
+  capture_lat: number | null; capture_lng: number | null; capture_heading: number | null;
 };
 
 function rowToPost(r: PostRow, url: string | null, counts: { likes: number; comments: number; annos: number }): Post {
@@ -26,6 +27,8 @@ function rowToPost(r: PostRow, url: string | null, counts: { likes: number; comm
     poster: `#0a0a12 url("${pano}") center / cover no-repeat`,
     panoUrl: pano,
     likes: counts.likes, comments: counts.comments, saves: 0, annotationCount: counts.annos,
+    captureLat: r.capture_lat ?? undefined, captureLng: r.capture_lng ?? undefined,
+    captureHeading: r.capture_heading ?? undefined,
   };
 }
 
@@ -41,7 +44,7 @@ export async function loadFeed(blocked?: Set<string>): Promise<Post[]> {
   const sb = browserSupabase();
   if (!sb) return [];
   const [posts, likes, comments, annos] = await Promise.all([
-    sb.from("posts").select("id,author_id,type,title,location,storage_path,profiles(handle,avatar_grad)").order("created_at", { ascending: false }),
+    sb.from("posts").select("id,author_id,type,title,location,storage_path,capture_lat,capture_lng,capture_heading,profiles(handle,avatar_grad)").order("created_at", { ascending: false }),
     sb.from("likes").select("post_id"),
     sb.from("comments").select("post_id"),
     sb.from("annotations").select("post_id"),

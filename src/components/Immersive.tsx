@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import type { Annotation, Comment, Post } from "@/lib/types";
-import { MEDIA } from "@/lib/types";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { Annotation, Comment, Post, Sighting } from "@/lib/types";
+import { MEDIA, POI } from "@/lib/types";
 import PanoViewer from "./PanoViewer";
 import ReportSheet from "./ReportSheet";
 import { track } from "@/lib/telemetry";
-import { addAnnotation, addComment, addFind, loadAnnotations, loadComments, type ReportTarget } from "@/lib/db";
+import { addAnnotation, addComment, addFind, addSighting, loadAnnotations, loadComments, loadSightings, type ReportTarget } from "@/lib/db";
 import type { SelectedMarker } from "./PanoViewerImpl";
+import { sunPathForPano } from "@/lib/sun";
 
 type ReportSubject = { type: ReportTarget; id: string; postId?: string | null; label: string };
 
@@ -52,6 +53,14 @@ export default function Immersive({
   const [foundMsg, setFoundMsg] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [report, setReport] = useState<ReportSubject | null>(null);
+  // Sun layer (deterministic — lib/sun.ts). Null when the post has no capture geo.
+  const sunPath = useMemo(() => sunPathForPano(post), [post]);
+  const [sunOn, setSunOn] = useState(false);
+  // Sighting sheet — confirm/dispute a tapped annotation from the field.
+  const [sight, setSight] = useState<{ id: string; label: string; kind: string } | null>(null);
+  const [sightList, setSightList] = useState<Sighting[]>([]);
+  const [sightNote, setSightNote] = useState("");
+  const [verdict, setVerdict] = useState<Sighting["verdict"]>("confirmed");
   const [ad, setAd] = useState<AdCard | null>(null);
   const [portal, setPortal] = useState<PortalCard | null>(null);
   const adOpenedAt = useRef(0);
@@ -84,6 +93,10 @@ export default function Immersive({
   function onSelect(m: SelectedMarker) {
     if (m.kind === "cache" && m.id) {
       setCache({ id: m.id, label: m.label || "cache" });
+    } else if (m.id && (m.kind === "route" || m.kind === "poi" || m.kind === "nature" || m.kind === "cultural")) {
+      setSight({ id: m.id, label: m.label || m.kind, kind: m.kind });
+      setSightNote(""); setVerdict("confirmed"); setSightList([]);
+      loadSightings(m.id, blocked).then(setSightList);
     } else if (m.kind && AD_KINDS.has(m.kind)) {
       adOpenedAt.current = Date.now();
       setAd({ id: m.id, label: m.label || "Sponsored", url: m.targetUrl, kind: m.kind, campaignId: m.campaignId });
@@ -104,6 +117,32 @@ export default function Immersive({
       track("ad_impression", { postId: post.id, props: { kind: a.kind, label: a.label, campaignId: a.campaignId } });
     });
   }, [annotations, post.id]);
+
+  // Save a sighting — the native comment + trust upgrade + triangulation sample.
+  // The sighter's GPS rides along when the browser grants it quickly; never blocks.
+  async function saveSighting() {
+    if (!user) return onAuthRequired();
+    if (!sight) return;
+    const pos = await new Promise<GeolocationPosition | null>((resolve) => {
+      if (!navigator.geolocation) return resolve(null);
+      navigator.geolocation.getCurrentPosition(resolve, () => resolve(null), { timeout: 3000, maximumAge: 60000 });
+    });
+    const ok = await addSighting(sight.id, user.id, verdict, {
+      note: sightNote.trim() || undefined,
+      lat: pos?.coords.latitude, lng: pos?.coords.longitude,
+    });
+    if (ok) {
+      track("sighting", { postId: post.id, props: { verdict, kind: sight.kind } });
+      if (verdict === "confirmed") {
+        // Upgrade locally so unverified styling clears without a refetch.
+        setAnnotations((prev) => prev.map((a) =>
+          a.id === sight.id ? { ...a, confirmedSightings: (a.confirmedSightings ?? 0) + 1 } : a));
+      }
+      setFoundMsg("Sighting logged — thanks for keeping the map honest");
+      setTimeout(() => setFoundMsg(""), 2200);
+    }
+    setSight(null);
+  }
 
   async function markFound() {
     if (!user) return onAuthRequired();
@@ -137,6 +176,7 @@ export default function Immersive({
       if (report) setReport(null);
       else if (ad) closeAd();
       else if (portal) setPortal(null);
+      else if (sight) setSight(null);
       else if (menuOpen) setMenuOpen(false);
       else if (naming) setNaming(false);
       else if (draft) setDraft(null);
@@ -146,7 +186,7 @@ export default function Immersive({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending, menuOpen, report, ad, portal, draft, naming, onClose]);
+  }, [pending, menuOpen, report, ad, portal, draft, naming, sight, onClose]);
 
   function onPlace(yaw: number, pitch: number) {
     if (!user) { setAddMode(false); setDraft(null); return onAuthRequired(); }
@@ -204,7 +244,7 @@ export default function Immersive({
   return (
     <div className="imm">
       <div className="imm-stage">
-        <PanoViewer post={post} annotations={viewerAnnotations} addMode={addMode || !!draft} onPlace={onPlace} onSelect={onSelect} />
+        <PanoViewer post={post} annotations={viewerAnnotations} addMode={addMode || !!draft} onPlace={onPlace} onSelect={onSelect} sunPath={sunOn ? sunPath : null} />
 
         <svg className="gaze" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.5">
           <circle cx="24" cy="24" r="13" opacity="0.5" /><circle cx="24" cy="24" r="2.5" fill="currentColor" stroke="none" />
@@ -260,6 +300,50 @@ export default function Immersive({
         </div>
         {shared && <div className="toast">Link copied — anyone can step inside</div>}
         {foundMsg && <div className="toast">{foundMsg}</div>}
+
+        {/* sighting sheet — the crowdsource loop on a tapped annotation */}
+        {sight && (() => {
+          const anno = annotations.find((a) => a.id === sight.id);
+          const unverified = !!anno?.safetyCritical && !(anno.confirmedSightings && anno.confirmedSightings > 0);
+          const what = anno?.poiType ? POI[anno.poiType].label : sight.kind;
+          return (
+            <div className="pin-compose glass" role="dialog" aria-label="Sighting">
+              <div className="eyebrow">{what}{anno?.source === "ai" ? " · AI-proposed" : ""}</div>
+              <div style={{ fontFamily: "var(--font-d)", fontSize: 18, fontWeight: 600, margin: "8px 0 4px" }}>{sight.label}</div>
+              {unverified && (
+                <p style={{ color: "#ffb454", fontSize: 12, lineHeight: 1.5 }}>
+                  ⚠ Unverified — nobody has confirmed this from the field. Trust your own judgment, not this marker.
+                </p>
+              )}
+              {sightList.length > 0 && (
+                <div style={{ maxHeight: 130, overflowY: "auto", margin: "8px 0" }}>
+                  {sightList.map((s) => (
+                    <div className="cmt" key={s.id}>
+                      <div className="dot-av" style={{ background: s.author.grad, width: 22, height: 22 }}>{s.author.initials}</div>
+                      <div style={{ flex: 1 }}>
+                        <div className="cmt-h">@{s.author.handle} · {s.verdict === "confirmed" ? "✓ confirmed" : s.verdict === "disputed" ? "✕ not as described" : "∅ gone"}</div>
+                        {s.note && <div className="cmt-b">{s.note}</div>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="seg" style={{ marginTop: 10, flexWrap: "wrap" }}>
+                {(["confirmed", "disputed", "gone"] as const).map((v) => (
+                  <button key={v} className="seg-opt" data-active={verdict === v} onClick={() => setVerdict(v)}>
+                    {v === "confirmed" ? "✓ it's there" : v === "disputed" ? "✕ not as described" : "∅ gone"}
+                  </button>
+                ))}
+              </div>
+              <input style={{ marginTop: 10 }} placeholder="Field note (optional) — condition, season, beta…" value={sightNote}
+                onChange={(e) => setSightNote(e.target.value)} onKeyDown={(e) => e.key === "Enter" && saveSighting()} />
+              <div className="sheet-foot" style={{ marginTop: 14 }}>
+                <button className="btn-sec" onClick={() => setSight(null)}>Close</button>
+                <button className="btn-upload" onClick={saveSighting}>Log sighting</button>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* geocache find panel */}
         {cache && (
@@ -379,6 +463,14 @@ export default function Immersive({
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 20c3-1 2.5-5 5-7s5-1.5 7-5 2-5 2-5" /><circle cx="4" cy="20" r="1.6" fill="currentColor" stroke="none" /><circle cx="18" cy="3" r="1.6" fill="currentColor" stroke="none" /></svg>
             <span>draw</span>
           </button>
+          {sunPath && (
+            <button className="rail-btn" data-on={sunOn}
+              onClick={() => { if (!sunOn) track("sun_path_view", { postId: post.id }); setSunOn((v) => !v); }}
+              title="Today's sun path — where it rises, arcs, and sets in this scene">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4" /></svg>
+              <span>sun</span>
+            </button>
+          )}
         </div>
 
         {/* comments drawer */}
