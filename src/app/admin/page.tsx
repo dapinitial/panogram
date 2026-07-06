@@ -97,9 +97,11 @@ export default async function AdminPage({
   let modReports: ModReport[] = [];
   let advertisers: Advertiser[] = [];
   let campaigns: Campaign[] = [];
+  let annoRows: { kind: string; source: string; is_safety_critical: boolean | null }[] = [];
+  let sightingRows: { verdict: string }[] = [];
 
   if (admin) {
-    const [ev, posts, users, reports, adv, camp] = await Promise.all([
+    const [ev, posts, users, reports, adv, camp, annos, sights] = await Promise.all([
       admin.from("events").select("name,session_id,post_id,created_at,props").order("created_at", { ascending: false }).limit(5000),
       admin.from("posts").select("type"),
       admin.from("profiles").select("id", { count: "exact", head: true }),
@@ -107,6 +109,8 @@ export default async function AdminPage({
         .in("status", ["open", "reviewing"]).order("created_at", { ascending: false }).limit(100),
       admin.from("advertisers").select("id,name"),
       admin.from("campaigns").select("id,advertiser_id,name,cpm_cents,budget_cents,status"),
+      admin.from("annotations").select("kind,source,is_safety_critical"),
+      admin.from("sightings").select("verdict"),
     ]);
     events = (ev.data as EventRow[]) ?? [];
     postTypes = ((posts.data as { type: MediaType }[]) ?? []).map((p) => p.type);
@@ -115,6 +119,8 @@ export default async function AdminPage({
     modReports = await buildModReports(admin, (reports.data as ReportRow[]) ?? []);
     advertisers = (adv.data as Advertiser[]) ?? [];
     campaigns = (camp.data as Campaign[]) ?? [];
+    annoRows = (annos.data as typeof annoRows) ?? [];
+    sightingRows = (sights.data as typeof sightingRows) ?? [];
   }
 
   // ── compute the metric tree ──────────────────────────────────────────────
@@ -148,6 +154,16 @@ export default async function AdminPage({
   const adPeeks = count("ad_peek");
   const adConversions = count("ad_conversion");
   const adCtr = adImpressions ? adConversions / adImpressions : 0;
+
+  // ── annotation layer: the depth loop ─────────────────────────────────────
+  const annoTotal = annoRows.length;
+  const annoRoutes = annoRows.filter((a) => a.kind === "route").length;
+  const annoAi = annoRows.filter((a) => a.source === "ai").length;
+  const annoSafety = annoRows.filter((a) => a.is_safety_critical).length;
+  const sightConfirmed = sightingRows.filter((s) => s.verdict === "confirmed").length;
+  const aiRuns = count("ai_tag_run");
+  const aiTags = events.filter((e) => e.name === "ai_tag_run")
+    .reduce((s, e) => s + (((e.props as { tags?: number } | null)?.tags) ?? 0), 0);
 
   // Attribute ad events to campaigns via props.campaignId; spend is MODELED at each
   // campaign's own CPM (this is the surface to actually bill).
@@ -270,6 +286,26 @@ export default async function AdminPage({
             <div className="monz-empty">No ad events yet — open a capture with a sponsored or portal tag (the demo feed has three) to light this up.</div>
           )}
           <div className="monz-note">Spend is <b>modeled</b> at each campaign&apos;s CPM to size the surface — not booked revenue.</div>
+        </section>
+
+        {/* Annotation layer — the depth loop (VISION §annotation layer) */}
+        <section className="monz">
+          <div className="monz-head">
+            <div>
+              <div className="eyebrow" style={{ color: "var(--accent)" }}>Annotation layer · The depth loop</div>
+              <h3>Topos, sightings & AI tags</h3>
+              <p className="monz-sub">Drawn lines, crowdsourced POIs, and vision-proposed tags — with the community-verification trust signal.</p>
+            </div>
+          </div>
+          <div className="monz-grid">
+            <div className="monz-kpi"><div className="monz-v">{fmt(annoTotal)}</div><div className="monz-l">Annotations</div><div className="monz-x">{fmt(annoRoutes)} drawn lines · {fmt(annoSafety)} safety-critical</div></div>
+            <div className="monz-kpi"><div className="monz-v">{fmt(sightingRows.length)}</div><div className="monz-l">Sightings</div><div className="monz-x">{fmt(sightConfirmed)} confirmed · {fmt(sightingRows.length - sightConfirmed)} disputed/gone</div></div>
+            <div className="monz-kpi"><div className="monz-v">{fmt(aiRuns)}</div><div className="monz-l">AI tag runs</div><div className="monz-x">{fmt(aiTags)} tags proposed · {fmt(annoAi)} live</div></div>
+            <div className="monz-kpi"><div className="monz-v">{fmt(count("sun_path_view") + count("peaks_view"))}</div><div className="monz-l">Ambient layers</div><div className="monz-x">{fmt(count("sun_path_view"))} sun · {fmt(count("peaks_view"))} peaks</div></div>
+          </div>
+          {annoTotal === 0 && (
+            <div className="monz-empty">No annotations yet — draw a topo line or run ✨ AI annotate in any capture to light this up.</div>
+          )}
         </section>
 
         {/* Moderation queue — safety first */}
