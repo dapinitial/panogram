@@ -5,6 +5,7 @@ import type { MediaType, Post } from "@/lib/types";
 import { MEDIA } from "@/lib/types";
 import { browserSupabase } from "@/lib/supabase-browser";
 import { track } from "@/lib/telemetry";
+import { extractCaptureGeo, type CaptureGeo } from "@/lib/exif";
 
 const TYPES: MediaType[] = ["panoramic_photo", "360_photo", "360_video", "180_photo", "180_video"];
 
@@ -43,11 +44,15 @@ export default function Upload({
   const [title, setTitle] = useState("");
   const [location, setLocation] = useState("");
   const [busy, setBusy] = useState(false);
+  const [geo, setGeo] = useState<CaptureGeo>({});
 
   function take(f: File | undefined) {
     if (!f) return;
     setFile(f);
     setPreview(URL.createObjectURL(f));
+    // Capture geo unlocks the sun layer + real-world bearings. Best-effort.
+    setGeo({});
+    extractCaptureGeo(f).then(setGeo);
   }
 
   async function publish() {
@@ -61,7 +66,10 @@ export default function Upload({
     if (user && sb && path) {
       const { data, error } = await sb
         .from("posts")
-        .insert({ author_id: user.id, type, title: title.trim(), location: location.trim(), storage_path: path, aspect: aspectFor(type) })
+        .insert({
+          author_id: user.id, type, title: title.trim(), location: location.trim(), storage_path: path, aspect: aspectFor(type),
+          capture_lat: geo.lat ?? null, capture_lng: geo.lng ?? null, capture_heading: geo.heading ?? null,
+        })
         .select("id")
         .single();
       if (!error && data) id = data.id as string;
@@ -78,8 +86,9 @@ export default function Upload({
       likes: 0,
       comments: 0,
       saves: 0,
+      captureLat: geo.lat, captureLng: geo.lng, captureHeading: geo.heading,
     };
-    track("upload_publish", { postId: post.id, props: { type, persisted: !!(user && path) } });
+    track("upload_publish", { postId: post.id, props: { type, persisted: !!(user && path), hasGeo: geo.lat !== undefined, hasHeading: geo.heading !== undefined } });
     onPublish(post);
   }
 
@@ -110,7 +119,14 @@ export default function Upload({
             <>
               <div className="chamber-band" style={{ backgroundImage: `url("${preview}")` }} />
               <div className="chamber-horizon" />
-              <div className="chamber-status"><span className="dot" /> Ready to enter — {file?.name}</div>
+              <div className="chamber-status">
+                <span className="dot" /> Ready to enter — {file?.name}
+                {geo.lat !== undefined && (
+                  <span className="geo-chip" title="Capture GPS found — sun path + real-world bearings enabled">
+                    📍 {geo.lat.toFixed(4)}, {geo.lng!.toFixed(4)}{geo.heading !== undefined ? ` · ⌖ ${Math.round(geo.heading)}°` : ""}
+                  </span>
+                )}
+              </div>
             </>
           ) : (
             <div className="chamber-empty">
