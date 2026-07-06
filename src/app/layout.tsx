@@ -22,12 +22,20 @@ export const metadata: Metadata = {
     "Immersive social for panoramic, 360° and 180° media. Teleport anywhere. Built spatial-native.",
 };
 
+// Runs before first paint: resolve the theme (stored choice, else system) and
+// stamp it on <html> so there's no flash of the wrong theme. Dark stays the
+// default when nothing is stored and the system has no light preference.
+const themeInit = `(function(){try{var t=localStorage.getItem("pg-theme");if(t!=="light"&&t!=="dark"){t=window.matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"}document.documentElement.dataset.theme=t}catch(e){document.documentElement.dataset.theme="dark"}})()`;
+
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${display.variable} ${body.variable}`}>
-      <body>{children}</body>
+    <html lang="en" className={`${display.variable} ${body.variable}`} suppressHydrationWarning>
+      <body>
+        <script dangerouslySetInnerHTML={{ __html: themeInit }} />
+        {children}
+      </body>
     </html>
   );
 }

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Footer from "./Footer";
+import ThemeToggle from "./ThemeToggle";
 
 // Shared chrome for the static legal/policy pages: a slim top bar that links home,
 // the title + last-updated stamp, the prose body, and the site footer.
@@ -21,7 +22,10 @@ export default function LegalDoc({
           <img src="/panogram-mark.png" alt="" />
           <span>Panogram</span>
         </Link>
-        <Link href="/" className="legal-back">← Back to the feed</Link>
+        <div className="legal-actions">
+          <ThemeToggle />
+          <Link href="/" className="legal-back">← Back to the feed</Link>
+        </div>
       </header>
 
       <main className="legal">

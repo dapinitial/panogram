@@ -10,18 +10,40 @@
   --pink: #e040a0;
   --purple: #7c3aed;
 
-  /* THE accent — one electric signal, AIRND-style vibrant lime. Drives data,
-     primary CTAs, active states. Swap --accent here to re-skin the product. */
-  --accent: #aef23a;
+  /* accent constants that never change with theme: the vibrant fill ramp always
+     carries near-black ink, and the LCD readout always sits on a dark inset. */
   --accent-bright: #c8ff5c;
   --accent-deep: #7cc41c;
   --accent-ink: #0c1800;                    /* near-black ink that sits on an accent fill */
+  --grad: linear-gradient(120deg, #c8ff5c 0%, #aef23a 52%, #86e21f 100%); /* accent ramp */
+  --grad-soft: linear-gradient(120deg, rgba(198,255,92,.16), rgba(134,226,31,.10));
+  --inset: #07070e;  /* recessed instrument-display background */
+
+  --r-sm: 12px;
+  --r: 18px;
+  --r-lg: 22px;
+  --nav-h: 68px;
+
+  --font-d: var(--font-display), "Space Grotesk", system-ui, sans-serif;
+  --font-b: var(--font-body), "Inter", system-ui, sans-serif;
+  /* tabular, tight figures for data — the instrument feel */
+  --num: "Space Grotesk", var(--font-display), ui-monospace, sans-serif;
+}
+
+/* Themed tokens — dark is the default. The immersive overlay (`.imm`) re-declares
+   the dark set even in light mode: it's chrome floating over a 360° photograph
+   and stays a dark instrument regardless of theme. */
+:root,
+[data-theme="light"] .imm {
+  color-scheme: dark;
+
+  /* THE accent — one electric signal, AIRND-style vibrant lime. Drives data,
+     primary CTAs, active states. Swap --accent here to re-skin the product. */
+  --accent: #aef23a;
   --accent-soft: rgba(174, 242, 58, 0.13);  /* tinted bg for restrained active states */
   --accent-line: rgba(174, 242, 58, 0.5);   /* tinted border */
   --glow: rgba(174, 242, 58, 0.55);
   --glow-strong: rgba(174, 242, 58, 0.9);
-  --grad: linear-gradient(120deg, #c8ff5c 0%, #aef23a 52%, #86e21f 100%); /* accent ramp */
-  --grad-soft: linear-gradient(120deg, rgba(198,255,92,.16), rgba(134,226,31,.10));
   --holo: #8fe9ff;                          /* secondary cool line — very sparing */
 
   /* void — deep, cool, a whisper of violet */
@@ -36,22 +58,46 @@
   --panel-grad: linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.012) 42%, rgba(255,255,255,0));
   --panel-hi: inset 0 1px 0 0 rgba(255,255,255,0.07);
   --shadow-card: 0 22px 55px -30px rgba(0,0,0,0.95);
-  --inset: #07070e;  /* recessed instrument-display background */
+  --panel-deep: rgba(6, 6, 11, 0.45);       /* recessed sub-panels (admin insets) */
+  --nav-bg: rgba(6, 6, 11, 0.55);
+  --scrim: rgba(4, 4, 9, 0.72);
 
   /* ink */
   --ink: #f4f4fb;
   --ink-dim: #9595b0;
   --ink-faint: #57576f;
+}
 
-  --r-sm: 12px;
-  --r: 18px;
-  --r-lg: 22px;
-  --nav-h: 68px;
+/* Light theme — same spatial language on a fog-white canvas. The accent shifts
+   to a deep lime so text/line roles keep contrast; vibrant fills (--grad) and
+   the dark LCD inset are shared constants above. */
+:root[data-theme="light"] {
+  color-scheme: light;
 
-  --font-d: var(--font-display), "Space Grotesk", system-ui, sans-serif;
-  --font-b: var(--font-body), "Inter", system-ui, sans-serif;
-  /* tabular, tight figures for data — the instrument feel */
-  --num: "Space Grotesk", var(--font-display), ui-monospace, sans-serif;
+  --accent: #4d7c0f;
+  --accent-soft: rgba(101, 163, 13, 0.12);
+  --accent-line: rgba(101, 163, 13, 0.45);
+  --glow: rgba(101, 163, 13, 0.28);
+  --glow-strong: rgba(101, 163, 13, 0.5);
+  --holo: #0e7490;
+
+  --void: #f2f2f7;
+  --void-2: #ffffff;
+  --panel: rgba(12, 12, 26, 0.04);
+  --panel-2: rgba(12, 12, 26, 0.07);
+  --hair: rgba(12, 12, 26, 0.10);
+  --hair-bright: rgba(12, 12, 26, 0.19);
+
+  --panel-grad: linear-gradient(180deg, rgba(255,255,255,0.9), rgba(255,255,255,0.35) 42%, rgba(255,255,255,0));
+  --panel-hi: inset 0 1px 0 0 rgba(255,255,255,0.9);
+  --shadow-card: 0 22px 55px -30px rgba(18, 18, 40, 0.35);
+  --panel-deep: rgba(12, 12, 26, 0.05);
+  --nav-bg: rgba(247, 247, 251, 0.72);
+  --scrim: rgba(12, 12, 28, 0.45);
+
+  --ink: #16161f;
+  --ink-dim: #52526b;
+  --ink-faint: #83839c;
 }
 
 /* data figures: tabular so columns of numbers align like an instrument panel */
@@ -63,7 +109,7 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 a { color: inherit; text-decoration: none; }
-html { color-scheme: dark; scroll-behavior: smooth; }
+html { scroll-behavior: smooth; }
 
 body {
   min-height: 100vh;
@@ -164,7 +210,7 @@ body {
 .nav {
   position: fixed; inset: 0 0 auto 0; z-index: 100; height: var(--nav-h);
   display: flex; align-items: center; gap: 18px; padding: 0 22px;
-  background: rgba(6, 6, 11, 0.55);
+  background: var(--nav-bg);
   border-bottom: 1px solid var(--hair);
   backdrop-filter: blur(26px) saturate(160%);
   -webkit-backdrop-filter: blur(26px) saturate(160%);
@@ -297,18 +343,19 @@ body {
 .badge {
   position: absolute; top: 12px; left: 12px; z-index: 2;
   font-family: var(--font-d); font-size: 10px; font-weight: 600; letter-spacing: 0.14em;
-  text-transform: uppercase; color: var(--ink);
+  text-transform: uppercase; color: #f4f4fb;
   padding: 5px 10px; border-radius: 8px;
-  background: rgba(6, 6, 11, 0.6); border: 1px solid var(--hair-bright);
+  background: rgba(6, 6, 11, 0.6); border: 1px solid rgba(255, 255, 255, 0.17);
   backdrop-filter: blur(10px);
 }
-.badge .o { color: var(--accent); }
+.badge .o { color: #aef23a; }
 
 /* the "enter immersion" affordance — a HUD reticle that appears on hover */
 .enter {
   position: absolute; z-index: 2; top: 12px; right: 12px;
   width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center;
-  background: rgba(6, 6, 11, 0.55); border: 1px solid var(--hair-bright);
+  color: #f4f4fb;
+  background: rgba(6, 6, 11, 0.55); border: 1px solid rgba(255, 255, 255, 0.17);
   backdrop-filter: blur(10px);
   opacity: 0; transform: scale(0.8); transition: opacity 0.25s, transform 0.25s;
 }
@@ -316,9 +363,10 @@ body {
 .enter svg { width: 18px; height: 18px; }
 .reticle { animation: spin 9s linear infinite; transform-origin: center; }
 
-.card-meta { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; padding: 16px 16px 15px; }
+/* card-meta sits on the stage's dark vignette in both themes — constant light ink */
+.card-meta { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; padding: 16px 16px 15px; color: #f4f4fb; }
 .card-meta h3 { font-family: var(--font-d); font-weight: 600; font-size: 17px; letter-spacing: -0.02em; line-height: 1.2; }
-.card-loc { margin-top: 4px; font-size: 12px; color: var(--ink-dim); display: flex; align-items: center; gap: 5px; }
+.card-loc { margin-top: 4px; font-size: 12px; color: #a5a5c0; display: flex; align-items: center; gap: 5px; }
 .card-foot {
   display: flex; align-items: center; gap: 9px; padding: 13px 16px;
   border-top: 1px solid var(--hair);
@@ -354,7 +402,7 @@ body {
 .imm-hud .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--holo); box-shadow: 0 0 8px var(--holo); animation: pulse 2s infinite; }
 .imm-close {
   width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; cursor: pointer;
-  background: rgba(255,255,255,0.06); border: 1px solid var(--hair-bright); color: var(--ink); font-size: 17px;
+  background: var(--panel-2); border: 1px solid var(--hair-bright); color: var(--ink); font-size: 17px;
   transition: background 0.18s, border-color 0.18s;
 }
 .imm-close:hover { background: var(--accent-soft); border-color: var(--accent-line); }
@@ -412,8 +460,8 @@ body {
 
 /* ── card annotation pip ────────────────────────────────────────────────── */
 .anno-pip { position: absolute; top: 12px; right: 12px; z-index: 2; font-family: var(--font-d); font-size: 11px;
-  color: var(--accent); padding: 4px 9px; border-radius: 999px; background: rgba(6,6,11,0.6);
-  border: 1px solid var(--accent-line); backdrop-filter: blur(8px); }
+  color: #aef23a; padding: 4px 9px; border-radius: 999px; background: rgba(6,6,11,0.6);
+  border: 1px solid rgba(174, 242, 58, 0.5); backdrop-filter: blur(8px); }
 .card:hover .anno-pip { opacity: 0; } /* yield to the enter reticle on hover */
 
 /* ── viewer: follow + action rail + composer + drawer ───────────────────── */
@@ -515,9 +563,9 @@ body {
 .ad-cta:disabled { opacity: 0.5; cursor: default; filter: none; }
 
 /* ── notifications ──────────────────────────────────────────────────────── */
-.bell { position: relative; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; cursor: pointer;
+.bell, .theme-btn { position: relative; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; cursor: pointer;
   background: var(--panel); border: 1px solid var(--hair); color: var(--ink-dim); transition: color 0.18s, border-color 0.18s; }
-.bell:hover { color: var(--ink); border-color: var(--hair-bright); }
+.bell:hover, .theme-btn:hover { color: var(--ink); border-color: var(--hair-bright); }
 .bell-dot { position: absolute; top: -3px; right: -3px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px;
   background: var(--accent); color: var(--accent-ink); font-family: var(--font-d); font-size: 9.5px; font-weight: 700; display: grid; place-items: center; }
 .notif-scrim { position: fixed; inset: 0; z-index: 120; }
@@ -543,7 +591,7 @@ a.who:hover .handle { color: var(--ink); }
 
 /* ── first-run welcome ──────────────────────────────────────────────────── */
 .welcome-scrim { position: fixed; inset: 0; z-index: 220; display: grid; place-items: center; padding: 22px;
-  background: rgba(4,4,9,0.74); backdrop-filter: blur(10px); animation: fade 0.3s ease; }
+  background: var(--scrim); backdrop-filter: blur(10px); animation: fade 0.3s ease; }
 .welcome { width: 100%; max-width: 460px; padding: 34px 32px; border-radius: var(--r-lg); text-align: center; animation: slideIn 0.3s ease; }
 .welcome-mark { height: 52px; width: auto; filter: drop-shadow(0 0 18px rgba(255,255,255,0.14)); margin-bottom: 16px; }
 .welcome h2 { font-family: var(--font-d); font-weight: 700; font-size: 26px; letter-spacing: -0.03em; line-height: 1.15; margin: 8px 0 22px; }
@@ -564,7 +612,7 @@ a.who:hover .handle { color: var(--ink); }
 /* ── upload sheet ───────────────────────────────────────────────────────── */
 .sheet-scrim {
   position: fixed; inset: 0; z-index: 210; display: grid; place-items: center; padding: 22px;
-  background: rgba(4, 4, 9, 0.72); backdrop-filter: blur(8px); animation: fade 0.22s ease;
+  background: var(--scrim); backdrop-filter: blur(8px); animation: fade 0.22s ease;
 }
 .sheet {
   width: 100%; max-width: 520px; max-height: 92vh; overflow-y: auto;
@@ -738,11 +786,11 @@ a.who:hover .handle { color: var(--ink); }
 .monz-rev-v { font-family: var(--font-d); font-weight: 700; font-size: 38px; line-height: 1; letter-spacing: -0.02em; }
 .monz-rev-l { font-size: 11px; color: var(--ink-faint); margin-top: 6px; }
 .monz-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 20px; }
-.monz-kpi { padding: 14px; border-radius: 14px; background: rgba(6,6,11,0.4); border: 1px solid var(--hair); }
+.monz-kpi { padding: 14px; border-radius: 14px; background: var(--panel-deep); border: 1px solid var(--hair); }
 .monz-v { font-family: var(--font-d); font-weight: 600; font-size: 24px; letter-spacing: -0.01em; }
 .monz-l { font-size: 12.5px; color: var(--ink-dim); margin-top: 3px; }
 .monz-x { font-size: 11px; color: var(--ink-faint); margin-top: 4px; }
-.monz-empty { margin-top: 16px; padding: 12px 14px; border-radius: 12px; background: rgba(6,6,11,0.4);
+.monz-empty { margin-top: 16px; padding: 12px 14px; border-radius: 12px; background: var(--panel-deep);
   border: 1px solid var(--hair); color: var(--ink-faint); font-size: 12.5px; }
 .monz-note { margin-top: 14px; font-size: 11.5px; color: var(--ink-faint); }
 .monz-note b { color: var(--ink-dim); }
@@ -751,7 +799,7 @@ a.who:hover .handle { color: var(--ink); }
 .camp-row { display: grid; grid-template-columns: 1.8fr 0.7fr 0.7fr 0.6fr 1fr 1.3fr; gap: 10px; align-items: center;
   padding: 12px 14px; font-size: 13px; }
 .camp-row:not(.camp-head):not(:last-child) { border-bottom: 1px solid var(--hair); }
-.camp-head { background: rgba(6,6,11,0.5); font-family: var(--font-d); font-size: 10.5px; letter-spacing: 0.08em;
+.camp-head { background: var(--panel-deep); font-family: var(--font-d); font-size: 10.5px; letter-spacing: 0.08em;
   text-transform: uppercase; color: var(--ink-faint); }
 .camp-name { display: flex; flex-direction: column; gap: 1px; }
 .camp-name b { font-weight: 600; color: var(--ink); }
@@ -773,10 +821,11 @@ a.who:hover .handle { color: var(--ink); }
 
 /* ── legal / policy pages ────────────────────────────────────────────────── */
 .legal-top { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between;
-  padding: 16px 24px; background: rgba(6,6,11,0.7); backdrop-filter: blur(12px); border-bottom: 1px solid var(--hair); }
+  padding: 16px 24px; background: var(--nav-bg); backdrop-filter: blur(12px); border-bottom: 1px solid var(--hair); }
 .legal-home { display: flex; align-items: center; gap: 9px; text-decoration: none; color: var(--ink); }
 .legal-home img { height: 24px; filter: drop-shadow(0 0 12px rgba(255,255,255,0.14)); }
 .legal-home span { font-family: var(--font-d); font-weight: 600; font-size: 15px; }
+.legal-actions { display: flex; align-items: center; gap: 14px; }
 .legal-back { color: var(--ink-dim); font-size: 13px; text-decoration: none; }
 .legal-back:hover { color: var(--ink); }
 
@@ -813,3 +862,32 @@ a.who:hover .handle { color: var(--ink); }
 .foot-links a:hover { color: var(--ink); }
 .foot-copy { color: var(--ink-faint); font-size: 12.5px; margin-left: auto; }
 @media (max-width: 620px) { .foot-copy { margin-left: 0; width: 100%; } }
+
+/* ── light theme: component-level remaps the tokens can't express ─────────── */
+/* daylight backdrop — same nebulae + equirectangular grid, inverted values */
+[data-theme="light"] .backdrop {
+  background:
+    radial-gradient(70% 55% at 50% -8%, rgba(124, 58, 237, 0.10), transparent 72%),
+    radial-gradient(40% 40% at 92% 6%, rgba(14, 116, 144, 0.06), transparent 70%),
+    var(--void);
+}
+[data-theme="light"] .backdrop::after {
+  background-image:
+    linear-gradient(rgba(12, 12, 26, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(12, 12, 26, 0.045) 1px, transparent 1px);
+}
+/* bright lime text is illegible on the fog canvas — use the deep-lime ramp */
+[data-theme="light"] .gradient-text {
+  background: linear-gradient(120deg, #65a30d 0%, #4d7c0f 60%, #3f6212 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  filter: drop-shadow(0 0 18px rgba(101, 163, 13, 0.35));
+}
+[data-theme="light"] .card:hover {
+  box-shadow: 0 34px 64px -26px rgba(18, 18, 40, 0.4), 0 0 0 1px var(--accent-line), 0 0 40px -12px var(--glow);
+}
+[data-theme="light"] .banner {
+  border-color: rgba(180, 100, 10, 0.35); background: rgba(255, 179, 71, 0.14); color: #8a5000;
+}
+[data-theme="light"] .banner b { color: #6e3f00; }
+[data-theme="light"] .bell-dot { color: #fff; }

@@ -1,6 +1,7 @@
 "use client";
 
 import { track } from "@/lib/telemetry";
+import ThemeToggle from "./ThemeToggle";
 
 const TABS = ["Feed", "Explore", "Profile"] as const;
 export type Tab = (typeof TABS)[number];
@@ -49,6 +50,7 @@ export default function Nav({
         <div className="status">
           <span className="dot" /> Spatial · Live
         </div>
+        <ThemeToggle />
         <button
           className="btn-upload"
           onClick={() => {

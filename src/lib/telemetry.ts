@@ -21,7 +21,8 @@ export type EventName =
   | "ad_impression"
   | "ad_peek"
   | "ad_dwell"
-  | "ad_conversion";
+  | "ad_conversion"
+  | "theme_change";
 
 // Stable-ish anonymous session id (per tab). No PII — just correlation.
 function sessionId(): string {
