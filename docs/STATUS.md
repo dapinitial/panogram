@@ -78,8 +78,34 @@ CLAUDE.md protocols 9–10. Migration `20260706180000_annotation_layer.sql` **ap
   output, pixel→sphere conversion, rows inserted as the requesting user with `source='ai'`.
   **BYOK**: caller's Anthropic key per request, never stored; `ANTHROPIC_API_KEY` = admin-only
   fallback. "✨ AI annotate" sheet in the viewer menu.
-- Telemetry vocab added: `route_draw · sighting · ai_tag_run · sun_path_view` (+ `upload_publish`
-  now carries `hasGeo/hasHeading`).
+- Telemetry vocab added: `route_draw · sighting · ai_tag_run · sun_path_view · peaks_view`
+  (+ `upload_publish` now carries `hasGeo/hasHeading/resized`).
+
+## Overnight pass (2026-07-06, auto mode)
+- **Upload hardening** — `lib/downscale.ts` re-encodes >8192px images to viewer-safe JPEG before
+  storage (4096 fallback; original on failure; EXIF read first). Compass **heading nudge**
+  (N/NE/…/NW) when GPS exists but heading doesn't.
+- **EXIF verified on a real camera file** — Ricoh Theta S photosphere from Wikimedia: lat/lng exact,
+  heading 67.5° from rational GPSImgDirection. ✅ (PSV yaw *sign* still needs an eyes-on check.)
+- **Bearings + triangulation** — `lib/geo.ts`: `worldBearing` now populates `world_bearing` on
+  create (viewer + AI route); `intersectBearings` (least-squares, residual-meters confidence)
+  ready for cross-pano triangulation. 10/10 unit tests.
+- **The Atlas** — new tab: MapLibre over dark Carto tiles, pin per geo-tagged capture,
+  click-through to the viewer.
+- **OpenBeta wired** — `lib/openbeta.ts` feeds documented climb names/grades near the capture
+  point into AI tagging ("match or describe, never invent"). Verified live: 40 climbs @ Squamish
+  Apron. Endpoint 502s intermittently → one retry built in.
+- **Peak labels** — `/api/peaks` (OSM Overpass `natural=peak` + Open-Meteo elevation, cached);
+  "peaks" rail button places `▲ Name · elevation` on the horizon by pure bearing math. Verified:
+  34 named peaks near Squamish.
+- **/api/annotate rate limit** — 6/user/hour (in-memory; serverless caveat noted inline).
+- **/admin annotation-layer panel** — annotations/lines/safety-critical, sightings by verdict,
+  AI runs vs proposed vs live, ambient-layer usage.
+- **Research note**: onX's public `mp-tools` repo (github.com/onXmaps/mp-tools) is their internal
+  Claude Code plugin for Mountain Project dev — anonymous `getPhotosTopos` exposes their
+  interactive-topo format (`topoData` overlays + `topoRelations` w/ pitch links). Useful as
+  **schema inspiration + dev-time research only** — not licensed for product use; OpenBeta stays
+  the product integration.
 
 ## Trust & safety (P0)
 - **Report** — `⋯` menu in the viewer reports a capture/creator; per-comment `⚑` reports a comment.
@@ -105,12 +131,13 @@ Commits human-authored, **no AI attribution**. Secrets only in `.env.local`/`.en
 never committed. Per-project Supabase account isolation via `.envrc` + keychain.
 
 ## Open / next (priority order)
-0. **Annotation-layer follow-ups** — verify PSV yaw sign + EXIF extraction against a *real* Osmo 360
-   file (each has one documented flip point if mirrored); rate-limit `/api/annotate`; surface
-   `ai_tag_run` + sightings in `/admin`; sun arc assumes north-facing center when heading is missing
-   (add a manual heading nudge in Upload); founder AI-tagging runbook via Claude Code (CLAUDE.md
-   protocol 10); ATX→Squamish trip (summer 2026) = seed-content + eval-dataset collection, protocol
-   in VISION.md.
+0. **Annotation-layer follow-ups** — ~~EXIF real-file check~~ ✅, ~~rate limit~~ ✅, ~~admin panel~~ ✅,
+   ~~heading nudge~~ ✅ (see Overnight pass). Remaining: eyes-on check of PSV yaw sign with a real
+   render (one flip point in `lib/reproject.ts` if mirrored — sun/peaks/AI tags all share it);
+   founder AI-tagging runbook via Claude Code (CLAUDE.md protocol 10); Atlas: cluster pins at low
+   zoom once post count grows; triangulation UI (intersectBearings is ready, needs cross-pano
+   feature linking). ATX→Squamish trip (summer 2026) = seed-content + eval-dataset collection,
+   protocol in VISION.md.
 1. ~~**Trust & safety** — block / report / basic moderation.~~ **Built**; migration applied.
    Follow-ups: rate-limit report spam (report-from-profile, email alert, blocked-manager shipped —
    see "Trust & safety follow-ups").
