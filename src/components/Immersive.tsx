@@ -9,7 +9,8 @@ import { track } from "@/lib/telemetry";
 import { addAnnotation, addComment, addFind, addSighting, loadAnnotations, loadComments, loadSightings, type ReportTarget } from "@/lib/db";
 import type { SelectedMarker } from "./PanoViewerImpl";
 import { sunPathForPano } from "@/lib/sun";
-import { worldBearing } from "@/lib/geo";
+import { bearingBetween, distanceM, worldBearing } from "@/lib/geo";
+import type { PeakMarker } from "./PanoViewerImpl";
 
 type ReportSubject = { type: ReportTarget; id: string; postId?: string | null; label: string };
 
@@ -63,6 +64,10 @@ export default function Immersive({
   // Sun layer (deterministic — lib/sun.ts). Null when the post has no capture geo.
   const sunPath = useMemo(() => sunPathForPano(post), [post]);
   const [sunOn, setSunOn] = useState(false);
+  // Peak labels (deterministic — OSM peaks placed by bearing math).
+  const [peaks, setPeaks] = useState<PeakMarker[] | null>(null);
+  const [peaksOn, setPeaksOn] = useState(false);
+  const [peaksBusy, setPeaksBusy] = useState(false);
   // Sighting sheet — confirm/dispute a tapped annotation from the field.
   const [sight, setSight] = useState<{ id: string; label: string; kind: string } | null>(null);
   const [sightList, setSightList] = useState<Sighting[]>([]);
@@ -124,6 +129,37 @@ export default function Immersive({
       track("ad_impression", { postId: post.id, props: { kind: a.kind, label: a.label, campaignId: a.campaignId } });
     });
   }, [annotations, post.id]);
+
+  // OSM peaks → sphere markers: yaw from compass bearing minus the pano's
+  // heading, pitch from elevation difference over ground distance. Pure math.
+  async function togglePeaks() {
+    if (peaksOn) return setPeaksOn(false);
+    setPeaksOn(true);
+    track("peaks_view", { postId: post.id });
+    if (peaks || peaksBusy || post.captureLat == null || post.captureLng == null) return;
+    setPeaksBusy(true);
+    try {
+      const res = await fetch(`/api/peaks?lat=${post.captureLat}&lng=${post.captureLng}`);
+      const data = await res.json();
+      if (!res.ok) return;
+      const heading = post.captureHeading ?? 0;
+      const TWO_PI = 2 * Math.PI;
+      const list: PeakMarker[] = (data.peaks as { name: string; ele: number | null; lat: number; lng: number }[])
+        .map((p) => {
+          const dist = distanceM(post.captureLat!, post.captureLng!, p.lat, p.lng);
+          if (dist < 250) return null; // bearing unstable at point-blank range
+          const yaw = ((((bearingBetween(post.captureLat!, post.captureLng!, p.lat, p.lng) - heading) * Math.PI) / 180) % TWO_PI + TWO_PI) % TWO_PI;
+          const pitch = p.ele != null ? Math.atan2(p.ele - data.captureEle, dist) : 0;
+          return { name: p.name, ele: p.ele, yaw, pitch };
+        })
+        .filter((p): p is PeakMarker => !!p);
+      setPeaks(list);
+    } catch {
+      /* the layer just stays empty */
+    } finally {
+      setPeaksBusy(false);
+    }
+  }
 
   function openAi() {
     if (!user) return onAuthRequired();
@@ -288,7 +324,7 @@ export default function Immersive({
   return (
     <div className="imm">
       <div className="imm-stage">
-        <PanoViewer post={post} annotations={viewerAnnotations} addMode={addMode || !!draft} onPlace={onPlace} onSelect={onSelect} sunPath={sunOn ? sunPath : null} />
+        <PanoViewer post={post} annotations={viewerAnnotations} addMode={addMode || !!draft} onPlace={onPlace} onSelect={onSelect} sunPath={sunOn ? sunPath : null} peaks={peaksOn ? peaks : null} />
 
         <svg className="gaze" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.5">
           <circle cx="24" cy="24" r="13" opacity="0.5" /><circle cx="24" cy="24" r="2.5" fill="currentColor" stroke="none" />
@@ -538,6 +574,13 @@ export default function Immersive({
               title="Today's sun path — where it rises, arcs, and sets in this scene">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4" /></svg>
               <span>sun</span>
+            </button>
+          )}
+          {post.captureLat != null && (
+            <button className="rail-btn" data-on={peaksOn} onClick={togglePeaks}
+              title="Name the peaks on the horizon (OpenStreetMap)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m3 19 6-10 4 6 3-4 5 8z" /><path d="M8.5 10.5 10 8" /></svg>
+              <span>peaks</span>
             </button>
           )}
         </div>

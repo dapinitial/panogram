@@ -12,6 +12,21 @@ export function worldBearing(captureHeading: number, yaw: number): number {
   return ((captureHeading + yaw * DEG) % 360 + 360) % 360;
 }
 
+/** Compass bearing (degrees) from one point toward another. Local-flat
+ *  approximation — plenty for the sub-50km ranges peaks/POIs live at. */
+export function bearingBetween(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const dx = (lng2 - lng1) * Math.cos(((lat1 + lat2) / 2) / DEG);
+  const dy = lat2 - lat1;
+  return ((Math.atan2(dx, dy) * DEG) % 360 + 360) % 360;
+}
+
+/** Approximate ground distance in meters (same local-flat model). */
+export function distanceM(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const dx = (lng2 - lng1) * Math.cos(((lat1 + lat2) / 2) / DEG) * 111320;
+  const dy = (lat2 - lat1) * 111320;
+  return Math.hypot(dx, dy);
+}
+
 export interface BearingObservation {
   lat: number;     // where the observer stood
   lng: number;

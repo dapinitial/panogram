@@ -478,6 +478,14 @@ body {
 }
 .pg-marker--sun .pg-marker-label { border-color: rgba(255,205,100,0.45); }
 
+/* deterministic peak labels — quiet silver, ambient not interactive */
+.pg-marker--peak { pointer-events: none; }
+.pg-marker--peak .pg-marker-ring {
+  width: 8px; height: 8px; border-color: rgba(255,255,255,0.75); animation: none;
+  box-shadow: 0 0 10px rgba(255,255,255,0.35); background: rgba(255,255,255,0.2);
+}
+.pg-marker--peak .pg-marker-label { opacity: 0.92; border-color: rgba(255,255,255,0.25); }
+
 /* ── the Atlas (MapLibre) ───────────────────────────────────────────────── */
 .map-wrap { position: relative; margin-top: 8px; }
 .map-stage {

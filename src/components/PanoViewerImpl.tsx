@@ -67,10 +67,23 @@ function sunMarkersOf(sun: SunPath) {
   return markers;
 }
 
+// Deterministic peak labels — OSM peaks placed on the horizon by bearing math.
+export interface PeakMarker { name: string; ele: number | null; yaw: number; pitch: number }
+
+function peakMarkersOf(peaks: PeakMarker[]) {
+  return peaks.map((p, i) => ({
+    id: `peak-${i}-${p.name}`,
+    position: { yaw: p.yaw, pitch: p.pitch },
+    anchor: "center center",
+    data: { kind: "peak" },
+    html: `<div class="pg-marker pg-marker--peak"><span class="pg-marker-ring"></span><span class="pg-marker-label">▲ ${p.name}${p.ele ? ` · ${Math.round(p.ele)}m` : ""}</span></div>`,
+  }));
+}
+
 export type SelectedMarker = { id?: string; label?: string; kind?: string; targetUrl?: string; targetPostId?: string; campaignId?: string };
 
 export default function PanoViewerImpl({
-  post, annotations, addMode, onPlace, onSelect, sunPath,
+  post, annotations, addMode, onPlace, onSelect, sunPath, peaks,
 }: {
   post: Post;
   annotations: Annotation[];
@@ -78,23 +91,33 @@ export default function PanoViewerImpl({
   onPlace: (yaw: number, pitch: number) => void;
   onSelect: (m: SelectedMarker) => void;
   sunPath?: SunPath | null;
+  peaks?: PeakMarker[] | null;
 }) {
   const onSelectRef = useRef(onSelect);
-  onSelectRef.current = onSelect;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const markersRef = useRef<any>(null);
   const draggedOnce = useRef(false);
   const addModeRef = useRef(addMode);
   const onPlaceRef = useRef(onPlace);
   const sunRef = useRef(sunPath);
-  addModeRef.current = addMode;
-  onPlaceRef.current = onPlace;
-  sunRef.current = sunPath;
+  const peaksRef = useRef(peaks);
+  // Event handlers and onReady read these refs strictly after effects run.
+  useEffect(() => {
+    onSelectRef.current = onSelect;
+    addModeRef.current = addMode;
+    onPlaceRef.current = onPlace;
+    sunRef.current = sunPath;
+    peaksRef.current = peaks;
+  });
 
   // Push marker changes imperatively so the panorama image never reloads.
   useEffect(() => {
-    markersRef.current?.setMarkers([...annotations.map(markerOf), ...(sunPath ? sunMarkersOf(sunPath) : [])]);
-  }, [annotations, sunPath]);
+    markersRef.current?.setMarkers([
+      ...annotations.map(markerOf),
+      ...(sunPath ? sunMarkersOf(sunPath) : []),
+      ...(peaks ? peakMarkersOf(peaks) : []),
+    ]);
+  }, [annotations, sunPath, peaks]);
 
   const onReady = useCallback(
     (instance: unknown) => {
@@ -102,10 +125,14 @@ export default function PanoViewerImpl({
       const viewer = instance as any;
       const mp = viewer.getPlugin(MarkersPlugin);
       markersRef.current = mp;
-      mp?.setMarkers([...annotations.map(markerOf), ...(sunRef.current ? sunMarkersOf(sunRef.current) : [])]);
+      mp?.setMarkers([
+        ...annotations.map(markerOf),
+        ...(sunRef.current ? sunMarkersOf(sunRef.current) : []),
+        ...(peaksRef.current ? peakMarkersOf(peaksRef.current) : []),
+      ]);
 
       mp?.addEventListener("select-marker", (e: { marker: { data?: SelectedMarker } }) => {
-        if (e.marker?.data?.kind === "sun") return; // the sun is not an annotation
+        if (e.marker?.data?.kind === "sun" || e.marker?.data?.kind === "peak") return; // ambient layers, not annotations
         track("annotation_tap", { postId: post.id, props: { label: e.marker?.data?.label } });
         if (e.marker?.data) onSelectRef.current(e.marker.data);
       });
