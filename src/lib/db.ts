@@ -2,7 +2,7 @@
 // here so components stay declarative. Counts are tallied client-side — fine at
 // prototype scale; swap for a SQL view if data grows large.
 import { browserSupabase } from "./supabase-browser";
-import type { Annotation, Author, Comment, Post } from "./types";
+import type { Annotation, Author, Comment, Post, Sighting } from "./types";
 
 const SAMPLE = "https://photo-sphere-viewer-data.netlify.app/assets/sphere-small.jpg";
 
@@ -115,9 +115,23 @@ export async function addComment(postId: string, userId: string, body: string): 
 
 export async function loadAnnotations(postId: string): Promise<Annotation[]> {
   const sb = browserSupabase(); if (!sb) return [];
-  const { data } = await sb.from("annotations").select("id,yaw,pitch,label,kind,target_url,target_post_id,campaign_id").eq("post_id", postId);
-  return ((data as { id: string; yaw: number; pitch: number; label: string; kind: Annotation["kind"]; target_url: string | null; target_post_id: string | null; campaign_id: string | null }[]) ?? [])
-    .map((r) => ({ id: r.id, yaw: r.yaw, pitch: r.pitch, label: r.label, kind: r.kind, targetUrl: r.target_url ?? undefined, targetPostId: r.target_post_id ?? undefined, campaignId: r.campaign_id ?? undefined }));
+  const { data } = await sb.from("annotations")
+    .select("id,yaw,pitch,label,kind,target_url,target_post_id,campaign_id,source,path,poi_type,is_safety_critical,sightings(verdict)")
+    .eq("post_id", postId);
+  type Row = {
+    id: string; yaw: number; pitch: number; label: string; kind: Annotation["kind"];
+    target_url: string | null; target_post_id: string | null; campaign_id: string | null;
+    source: Annotation["source"]; path: [number, number][] | null;
+    poi_type: Annotation["poiType"] | null; is_safety_critical: boolean | null;
+    sightings: { verdict: string }[] | null;
+  };
+  return ((data as unknown as Row[]) ?? []).map((r) => ({
+    id: r.id, yaw: r.yaw, pitch: r.pitch, label: r.label, kind: r.kind,
+    targetUrl: r.target_url ?? undefined, targetPostId: r.target_post_id ?? undefined, campaignId: r.campaign_id ?? undefined,
+    source: r.source ?? "human", path: r.path ?? undefined, poiType: r.poi_type ?? undefined,
+    safetyCritical: r.is_safety_critical ?? false,
+    confirmedSightings: (r.sightings ?? []).filter((s) => s.verdict === "confirmed").length,
+  }));
 }
 
 /** Geocache loop: log that the user found a hidden cache annotation. */
@@ -132,7 +146,33 @@ export async function addAnnotation(postId: string, userId: string, a: Annotatio
   const { error } = await sb.from("annotations").insert({
     post_id: postId, author_id: userId, yaw: a.yaw, pitch: a.pitch, label: a.label, kind: a.kind,
     target_url: a.targetUrl ?? null, target_post_id: a.targetPostId ?? null,
+    path: a.path ?? null, poi_type: a.poiType ?? null, // source defaults to 'human'
   });
+  return !error;
+}
+
+// ── Sightings ── the crowdsource loop: native comment + trust + triangulation ─
+
+export async function loadSightings(annotationId: string, blocked?: Set<string>): Promise<Sighting[]> {
+  const sb = browserSupabase(); if (!sb) return [];
+  const { data } = await sb.from("sightings")
+    .select("id,annotation_id,user_id,verdict,note,created_at,profiles(handle,avatar_grad)")
+    .eq("annotation_id", annotationId).order("created_at", { ascending: true });
+  let rows = (data as unknown as { id: string; annotation_id: string; user_id: string; verdict: Sighting["verdict"]; note: string; created_at: string; profiles: ProfileEmbed }[]) ?? [];
+  if (blocked?.size) rows = rows.filter((r) => !blocked.has(r.user_id));
+  return rows.map((r) => ({ id: r.id, annotationId: r.annotation_id, verdict: r.verdict, note: r.note, createdAt: r.created_at, author: authorOf(r.profiles) }));
+}
+
+/** Upsert: one living verdict per (annotation, user) — re-sighting updates it. */
+export async function addSighting(
+  annotationId: string, userId: string, verdict: Sighting["verdict"],
+  opts: { note?: string; lat?: number; lng?: number } = {},
+): Promise<boolean> {
+  const sb = browserSupabase(); if (!sb) return false;
+  const { error } = await sb.from("sightings").upsert(
+    { annotation_id: annotationId, user_id: userId, verdict, note: opts.note ?? "", sighted_lat: opts.lat ?? null, sighted_lng: opts.lng ?? null },
+    { onConflict: "annotation_id,user_id" },
+  );
   return !error;
 }
 

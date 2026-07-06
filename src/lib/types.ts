@@ -28,10 +28,50 @@ export interface Annotation {
   yaw: number;   // radians — sphere longitude
   pitch: number; // radians — sphere latitude
   label: string;
-  kind: "note" | "link" | "product" | "cache" | "sponsored" | "portal";
+  kind: "note" | "link" | "product" | "cache" | "sponsored" | "portal" | "route" | "poi" | "nature" | "cultural";
   targetUrl?: string;     // link / product / sponsored — tap-out destination
   targetPostId?: string;  // portal — teleport target pano
   campaignId?: string;    // backing ad campaign (attributes impressions/conversions)
+
+  // Annotation layer (VISION.md) — topo lines, POIs, the safety rail
+  source?: "human" | "ai";      // AI-proposed tags are reviewable, never authoritative
+  path?: [number, number][];    // spherical polyline [[yaw,pitch],…] radians — 'route' lines
+  poiType?: PoiType;            // 'poi' — what the placeable thing is
+  safetyCritical?: boolean;     // rappel/anchor/crack — renders UNVERIFIED until confirmed
+  confirmedSightings?: number;  // confirmed-sighting count (the trust upgrade)
+}
+
+// The backcountry's living map — placeable POI vocabulary (mirrors the
+// annotations.poi_type check constraint; keep both in sync by migration).
+export type PoiType =
+  | "camp" | "bivy" | "water" | "trailhead" | "cairn" | "mine" | "wreck" | "summit"
+  | "rappel" | "anchor" | "crack" // ← safety-critical subset (VISION §6)
+  | "other";
+
+export const POI: Record<PoiType, { label: string; safetyCritical: boolean }> = {
+  camp:      { label: "Camp",           safetyCritical: false },
+  bivy:      { label: "Bivy",           safetyCritical: false },
+  water:     { label: "Water source",   safetyCritical: false },
+  trailhead: { label: "Trailhead",      safetyCritical: false },
+  cairn:     { label: "Cairn",          safetyCritical: false },
+  mine:      { label: "Mine",           safetyCritical: false },
+  wreck:     { label: "Wreck",          safetyCritical: false },
+  summit:    { label: "Summit",         safetyCritical: false },
+  rappel:    { label: "Rappel station", safetyCritical: true },
+  anchor:    { label: "Anchor",         safetyCritical: true },
+  crack:     { label: "Crack system",   safetyCritical: true }, // observation, never an endorsement
+  other:     { label: "Point of interest", safetyCritical: false },
+};
+
+// A sighting — the native comment, a reputation signal, and a triangulation
+// sample in one (mirrors the `sightings` table).
+export interface Sighting {
+  id: string;
+  annotationId: string;
+  verdict: "confirmed" | "disputed" | "gone";
+  note: string;
+  createdAt: string;
+  author: Author;
 }
 
 export interface Author {
@@ -54,6 +94,12 @@ export interface Post {
   saves: number;
   annotationCount?: number;
   annotations?: Annotation[];
+
+  // capture geo (posts.capture_*) — feeds the deterministic sun layer (lib/sun.ts)
+  // and bearing/triangulation. Absent on seed/mock posts.
+  captureLat?: number;
+  captureLng?: number;
+  captureHeading?: number; // compass degrees the pano's 0-yaw faces
 }
 
 export interface Comment {

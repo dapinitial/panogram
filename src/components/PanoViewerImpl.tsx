@@ -11,13 +11,39 @@ import { track } from "@/lib/telemetry";
 
 // Real equirectangular renderer. Annotations are PSV markers (the spatial layer).
 // In add-mode, clicking the sphere reports the yaw/pitch so a new tag can be placed.
+//
+// SAFETY RAIL (VISION.md annotation layer §6): safety-critical markers
+// (rappel/anchor/crack) render dashed + "unverified" until confirmed sightings
+// exist. This styling is the trust contract — never bypass it.
 function markerOf(a: Annotation, i: number) {
+  const unverified = (a.safetyCritical && !(a.confirmedSightings && a.confirmedSightings > 0)) || a.source === "ai";
+  const data = { id: a.id, label: a.label, kind: a.kind, targetUrl: a.targetUrl, targetPostId: a.targetPostId, campaignId: a.campaignId };
+
+  // Drawn topo lines (routes, rap lines, approaches) are spherical polylines —
+  // the SAME schema whether a climber drew it or the vision pipeline traced it.
+  if (a.path && a.path.length > 1) {
+    return {
+      id: `anno-${i}-path-${a.id ?? a.path[0][0].toFixed(3)}`,
+      polyline: a.path,
+      svgStyle: {
+        stroke: unverified ? "rgba(255,180,84,0.9)" : "var(--accent, #5fe2cb)",
+        strokeWidth: "3px",
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        strokeDasharray: unverified ? "6 8" : "none",
+        fill: "none",
+      },
+      tooltip: `${a.label || a.kind}${unverified ? " · unverified" : ""}`,
+      data,
+    };
+  }
+
   return {
     id: `anno-${i}-${a.yaw.toFixed(3)}-${a.pitch.toFixed(3)}`,
     position: { yaw: a.yaw, pitch: a.pitch },
-    html: `<div class="pg-marker pg-marker--${a.kind}"><span class="pg-marker-ring"></span><span class="pg-marker-label">${a.label || a.kind}</span></div>`,
+    html: `<div class="pg-marker pg-marker--${a.kind}${unverified ? " pg-marker--unverified" : ""}"><span class="pg-marker-ring"></span><span class="pg-marker-label">${a.label || a.kind}</span></div>`,
     anchor: "center center",
-    data: { id: a.id, label: a.label, kind: a.kind, targetUrl: a.targetUrl, targetPostId: a.targetPostId, campaignId: a.campaignId },
+    data,
   };
 }
 

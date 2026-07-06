@@ -450,6 +450,17 @@ body {
 }
 @keyframes markerPulse { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.18); opacity: 0.75; } }
 
+/* Safety rail (VISION.md annotation layer §6): AI-proposed and unconfirmed
+   life-critical markers must READ as unverified — dashed amber, no pulse,
+   labeled. Confirmed sightings are the only thing that upgrades them. */
+.pg-marker--unverified .pg-marker-ring {
+  border-style: dashed; border-color: #ffb454; animation: none;
+  box-shadow: 0 0 14px rgba(255,180,84,0.4), inset 0 0 8px rgba(255,180,84,0.35);
+  background: rgba(255,180,84,0.12);
+}
+.pg-marker--unverified .pg-marker-label { border-color: rgba(255,180,84,0.5); }
+.pg-marker--unverified .pg-marker-label::after { content: " · unverified"; color: #ffb454; }
+
 /* ── explore search ─────────────────────────────────────────────────────── */
 .search { display: flex; align-items: center; gap: 10px; max-width: 540px; margin-top: 20px;
   padding: 12px 16px; border-radius: 14px; background: var(--panel); border: 1px solid var(--hair); color: var(--ink-dim); }
