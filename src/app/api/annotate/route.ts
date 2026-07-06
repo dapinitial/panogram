@@ -4,6 +4,7 @@ import { authConfigured, supabaseServer } from "@/lib/supabase-server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { DEFAULT_VIEWS, renderViews, viewPixelToSphere } from "@/lib/reproject";
 import { worldBearing } from "@/lib/geo";
+import { nearbyClimbs } from "@/lib/openbeta";
 
 // AI vision tagging (VISION annotation layer §1) — Claude reads rectilinear
 // views rendered out of the sphere and proposes annotations, inserted with
@@ -21,6 +22,23 @@ import { worldBearing } from "@/lib/geo";
 export const maxDuration = 120; // reprojection + a vision call take a while
 
 const MODEL = "claude-opus-4-8";
+
+// Per-user limiter: vision runs are slow + cost real money (even BYOK — this
+// also caps abuse of the admin fallback key). In-memory, so per-instance on
+// serverless — a determined abuser gets N× the limit across warm instances,
+// which is acceptable friction at prototype scale; move to a DB counter when
+// it matters.
+const RATE_LIMIT = 6;               // runs per user…
+const RATE_WINDOW_MS = 60 * 60_000; // …per hour
+const runLog = new Map<string, number[]>();
+function rateLimited(userId: string): boolean {
+  const now = Date.now();
+  const recent = (runLog.get(userId) ?? []).filter((t) => now - t < RATE_WINDOW_MS);
+  if (recent.length >= RATE_LIMIT) { runLog.set(userId, recent); return true; }
+  recent.push(now);
+  runLog.set(userId, recent);
+  return false;
+}
 const KINDS = new Set(["note", "poi", "nature", "cultural", "route"]);
 const POI_TYPES = new Set([
   "camp", "bivy", "water", "trailhead", "cairn", "mine", "wreck", "summit",
@@ -87,6 +105,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "auth required" }, { status: 401 });
   }
 
+  if (rateLimited(user.id)) {
+    return NextResponse.json(
+      { ok: false, error: `easy there — AI tagging is limited to ${RATE_LIMIT} runs an hour` },
+      { status: 429 },
+    );
+  }
+
   // BYOK first; the server's own key is admin-only (it spends the owner's money).
   let apiKey = body.apiKey?.trim() || null;
   if (!apiKey && process.env.ANTHROPIC_API_KEY) {
@@ -100,7 +125,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const { data: post } = await sb.from("posts").select("id,type,title,location,storage_path,capture_heading").eq("id", body.postId).maybeSingle();
+  const { data: post } = await sb.from("posts").select("id,type,title,location,storage_path,capture_lat,capture_lng,capture_heading").eq("id", body.postId).maybeSingle();
   if (!post?.storage_path) {
     return NextResponse.json({ ok: false, error: "post not found or has no stored image" }, { status: 404 });
   }
@@ -117,7 +142,13 @@ export async function POST(req: Request) {
 
   try {
     const views = DEFAULT_VIEWS;
-    const jpegs = await renderViews(equirect, views);
+    // Route identity comes from OpenBeta (best-effort), never vision guesses.
+    const [jpegs, climbs] = await Promise.all([
+      renderViews(equirect, views),
+      post.capture_lat != null && post.capture_lng != null
+        ? nearbyClimbs(post.capture_lat, post.capture_lng)
+        : Promise.resolve([]),
+    ]);
 
     const anthropic = new Anthropic({ apiKey });
     const content: Anthropic.ContentBlockParam[] = jpegs.flatMap((data, i) => [
@@ -125,6 +156,12 @@ export async function POST(req: Request) {
       { type: "image" as const, source: { type: "base64" as const, media_type: "image/jpeg" as const, data } },
     ]);
     content.push({ type: "text", text: `Pano title: “${post.title}”. Location hint: “${post.location || "unknown"}”.` });
+    if (climbs.length) {
+      content.push({
+        type: "text",
+        text: `Documented climbs within ~2.5km (OpenBeta): ${climbs.map((c) => `${c.name}${c.grade ? ` (${c.grade})` : ""} @ ${c.area}`).join("; ")}.\nWhen tracing a 'route' line, use one of these names ONLY if you can plausibly match the line to it (put the grade in body); otherwise label it descriptively ("clean corner crack line") — never invent a route name.`,
+      });
+    }
 
     const response = await anthropic.messages.create({
       model: MODEL,
