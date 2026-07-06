@@ -6,6 +6,7 @@ import { MEDIA } from "@/lib/types";
 import { browserSupabase } from "@/lib/supabase-browser";
 import { track } from "@/lib/telemetry";
 import { extractCaptureGeo, type CaptureGeo } from "@/lib/exif";
+import { downscaleForViewer } from "@/lib/downscale";
 
 const TYPES: MediaType[] = ["panoramic_photo", "360_photo", "360_video", "180_photo", "180_video"];
 
@@ -45,20 +46,24 @@ export default function Upload({
   const [location, setLocation] = useState("");
   const [busy, setBusy] = useState(false);
   const [geo, setGeo] = useState<CaptureGeo>({});
+  const [manualHeading, setManualHeading] = useState<number | null>(null);
 
   function take(f: File | undefined) {
     if (!f) return;
     setFile(f);
     setPreview(URL.createObjectURL(f));
     // Capture geo unlocks the sun layer + real-world bearings. Best-effort.
-    setGeo({});
+    setGeo({}); setManualHeading(null);
     extractCaptureGeo(f).then(setGeo);
   }
 
   async function publish() {
     if (!title.trim() || !file || busy) return;
     setBusy(true);
-    const { url, path } = await storePano(file);
+    // Geo was already read from the ORIGINAL file (re-encoding strips EXIF);
+    // what we store is the viewer-safe version.
+    const { file: storeFile, resized } = await downscaleForViewer(file);
+    const { url, path } = await storePano(storeFile);
 
     // Persist a real post when signed in (RLS lets you insert as yourself).
     let id = `u-${Math.random().toString(36).slice(2)}`;
@@ -88,7 +93,7 @@ export default function Upload({
       saves: 0,
       captureLat: geo.lat, captureLng: geo.lng, captureHeading: geo.heading,
     };
-    track("upload_publish", { postId: post.id, props: { type, persisted: !!(user && path), hasGeo: geo.lat !== undefined, hasHeading: geo.heading !== undefined } });
+    track("upload_publish", { postId: post.id, props: { type, persisted: !!(user && path), hasGeo: geo.lat !== undefined, hasHeading: geo.heading !== undefined, resized } });
     onPublish(post);
   }
 
@@ -159,6 +164,22 @@ export default function Upload({
           <label htmlFor="l">Location</label>
           <input id="l" placeholder="Tokyo, Japan" value={location} onChange={(e) => setLocation(e.target.value)} />
         </div>
+
+        {/* Heading nudge: GPS without compass means the sun layer can't orient.
+            One tap fixes it — which way was the camera's center facing? */}
+        {file && geo.lat !== undefined && geo.heading === undefined && (
+          <div className="field">
+            <label>Which way does the center of the shot face? <span style={{ color: "var(--ink-faint)", fontWeight: 400 }}>(no compass data found — this places the sun path)</span></label>
+            <div className="seg" style={{ flexWrap: "wrap" }}>
+              {([["N", 0], ["NE", 45], ["E", 90], ["SE", 135], ["S", 180], ["SW", 225], ["W", 270], ["NW", 315]] as const).map(([label, deg]) => (
+                <button key={label} className="seg-opt" data-active={manualHeading === deg}
+                  onClick={() => { setManualHeading(deg); setGeo((g) => ({ ...g, heading: deg })); }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="sheet-foot">
           <span className="sheet-note">{willSave ? "Saves to your library" : "Sign in to save — publishing locally for now"}</span>
