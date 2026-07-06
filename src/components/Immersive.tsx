@@ -53,6 +53,12 @@ export default function Immersive({
   const [foundMsg, setFoundMsg] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [report, setReport] = useState<ReportSubject | null>(null);
+  // AI tagging (BYOK — the key lives in this browser only, rides each request,
+  // and is never stored server-side).
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiKey, setAiKey] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState("");
   // Sun layer (deterministic — lib/sun.ts). Null when the post has no capture geo.
   const sunPath = useMemo(() => sunPathForPano(post), [post]);
   const [sunOn, setSunOn] = useState(false);
@@ -118,6 +124,38 @@ export default function Immersive({
     });
   }, [annotations, post.id]);
 
+  function openAi() {
+    if (!user) return onAuthRequired();
+    setAiError("");
+    setAiKey(localStorage.getItem("pg_anthropic_key") ?? "");
+    setAiOpen(true); setMenuOpen(false);
+  }
+
+  async function runAiTagging() {
+    if (!user || aiBusy) return;
+    setAiBusy(true); setAiError("");
+    const key = aiKey.trim();
+    if (key) localStorage.setItem("pg_anthropic_key", key);
+    try {
+      const res = await fetch("/api/annotate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ postId: post.id, apiKey: key || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setAiError(data.error ?? "tagging failed"); return; }
+      track("ai_tag_run", { postId: post.id, props: { tags: data.inserted } });
+      loadAnnotations(post.id).then((a) => a.length && setAnnotations(a));
+      setAiOpen(false);
+      setFoundMsg(`✨ ${data.inserted} AI tag${data.inserted === 1 ? "" : "s"} proposed — review and confirm them`);
+      setTimeout(() => setFoundMsg(""), 3200);
+    } catch {
+      setAiError("network error — try again");
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
   // Save a sighting — the native comment + trust upgrade + triangulation sample.
   // The sighter's GPS rides along when the browser grants it quickly; never blocks.
   async function saveSighting() {
@@ -177,6 +215,7 @@ export default function Immersive({
       else if (ad) closeAd();
       else if (portal) setPortal(null);
       else if (sight) setSight(null);
+      else if (aiOpen) setAiOpen(false);
       else if (menuOpen) setMenuOpen(false);
       else if (naming) setNaming(false);
       else if (draft) setDraft(null);
@@ -186,7 +225,7 @@ export default function Immersive({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending, menuOpen, report, ad, portal, draft, naming, sight, onClose]);
+  }, [pending, menuOpen, report, ad, portal, draft, naming, sight, aiOpen, onClose]);
 
   function onPlace(yaw: number, pitch: number) {
     if (!user) { setAddMode(false); setDraft(null); return onAuthRequired(); }
@@ -278,6 +317,7 @@ export default function Immersive({
                 <>
                   <div className="menu-scrim" onClick={() => setMenuOpen(false)} />
                   <div className="imm-menu glass">
+                    <button onClick={openAi}>✨ AI annotate</button>
                     <button onClick={() => { setMenuOpen(false); setReport({ type: "post", id: post.id, postId: post.id, label: "this capture" }); }}>
                       ⚑ Report capture
                     </button>
@@ -300,6 +340,30 @@ export default function Immersive({
         </div>
         {shared && <div className="toast">Link copied — anyone can step inside</div>}
         {foundMsg && <div className="toast">{foundMsg}</div>}
+
+        {/* AI annotate — BYOK sheet */}
+        {aiOpen && (
+          <div className="pin-compose glass" role="dialog" aria-label="AI annotate">
+            <div className="eyebrow">✨ AI annotate</div>
+            <p style={{ color: "var(--ink-dim)", fontSize: 13, lineHeight: 1.55, margin: "8px 0" }}>
+              Claude reads this scene and proposes spatial tags — trails, flora, routes, points of
+              interest. Proposals are marked <b>AI · unverified</b> until the community confirms them.
+            </p>
+            <input type="password" placeholder="Your Anthropic API key (sk-ant-…)" value={aiKey}
+              onChange={(e) => setAiKey(e.target.value)} onKeyDown={(e) => e.key === "Enter" && runAiTagging()} />
+            <p style={{ color: "var(--ink-faint)", fontSize: 11, lineHeight: 1.5, marginTop: 6 }}>
+              Bring your own key — it stays in this browser, rides along with the request once, and is
+              never stored on our servers.
+            </p>
+            {aiError && <p style={{ color: "#ffb454", fontSize: 12, marginTop: 8 }}>⚠ {aiError}</p>}
+            <div className="sheet-foot" style={{ marginTop: 14 }}>
+              <button className="btn-sec" onClick={() => setAiOpen(false)}>Cancel</button>
+              <button className="btn-upload" disabled={aiBusy} onClick={runAiTagging}>
+                {aiBusy ? "Reading the scene…" : "Run AI tagging"}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* sighting sheet — the crowdsource loop on a tapped annotation */}
         {sight && (() => {

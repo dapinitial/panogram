@@ -72,17 +72,40 @@ editing.
   `/admin` dashboard. New meaningful interactions should emit an event; keep the name vocabulary in
   sync with the init migration's comment block.
 
+**9. The safety rail is inviolable (annotation layer).**
+- Anything a life hangs from — rappel stations, anchors, "climbable" cracks — **never renders as
+  authoritative**. `is_safety_critical` rows and all `source='ai'` annotations display dashed-amber
+  *unverified* until confirmed sightings exist. Never bypass this styling; never ship
+  "attempt this" framing (observations, not endorsements). This rule outranks engagement.
+- Cultural/indigenous significance surfaces only as *attributed pointers* naming the specific
+  nation, linking out — never paraphrased sacred stories.
+
+**10. AI tagging is bring-your-own-key.**
+- `/api/annotate` runs on the **caller's** Anthropic key, sent per-request from the browser
+  (localStorage only). Never log, store, or echo a user's key — it is used for exactly one upstream
+  call. `ANTHROPIC_API_KEY` in `.env.local` is the server fallback and is **admin-only** (it spends
+  the owner's money); it has no `NEXT_PUBLIC_` prefix on purpose.
+- AI-proposed rows insert **as the requesting user** (`author_id = auth.uid()`, `source='ai'`) via
+  the RLS-gated client — never via the admin client.
+- Claude **Max subscriptions cannot back this route** (consumer auth only works in Anthropic's own
+  surfaces). The founder path is tagging locally *through Claude Code itself*: open the pano in a
+  session, have Claude propose tags, insert them through the normal authed flow.
+
 ## Review checklist (before commit / PR)
 - [ ] New table → RLS enabled + policies in the migration?
-- [ ] No `getSupabaseAdmin` / `SUPABASE_SECRET_KEY` / `lib/email` import in a `"use client"` file?
+- [ ] No `getSupabaseAdmin` / `SUPABASE_SECRET_KEY` / `lib/email` / `ANTHROPIC_API_KEY` /
+      `lib/reproject` import or reference in a `"use client"` file?
 - [ ] No secret value in any committed file (hook should pass without `--no-verify`)?
 - [ ] `npm run build` green?
 - [ ] New user action emits a `track()` event where it matters?
+- [ ] Safety-critical or `source='ai'` annotations still render *unverified* (protocol 9)?
+- [ ] No code path logs or persists a user-supplied API key (protocol 10)?
 
 ## Map
-- `src/app/` — routes: `page.tsx` (shell), `admin/` (data room), `auth/callback/`, `api/{events,test-email}/`
-- `src/components/` — `Nav`, `Feed`, `PostCard`, `Immersive`+`PanoViewer*`, `Upload`, `AuthSheet`
-- `src/lib/` — supabase clients, `db.ts` (live-DB data access), `email.ts`, `telemetry.ts`, `types.ts`, `mock.ts`
+- `src/app/` — routes: `page.tsx` (shell), `admin/` (data room), `auth/callback/`, `api/{events,annotate,report,moderation,test-email}/`
+- `src/components/` — `Nav`, `Feed`, `PostCard`, `Immersive`+`PanoViewer*` (viewer + draw tool + sightings + sun layer), `Upload`, `AuthSheet`
+- `src/lib/` — supabase clients, `db.ts` (live-DB data access), `email.ts`, `telemetry.ts`, `types.ts`, `mock.ts`,
+  `sun.ts` (deterministic sun layer), `exif.ts` (capture-geo extraction), `reproject.ts` (server-only equirect↔rectilinear for AI tagging)
 - `src/proxy.ts` — session refresh (Next 16 "proxy", formerly middleware)
 - `supabase/migrations/` — schema + RLS (source of truth for the DB)
 - `docs/VISION.md` — product thesis · `.githooks/` — secret-scan pre-commit

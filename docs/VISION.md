@@ -107,6 +107,10 @@ rectilinear views out of the sphere (never feed raw equirectangular — pole dis
 vision models) → Claude tags each view with pixel coords → convert back to yaw/pitch → rows in
 an `annotations` table (RLS'd like everything else). Tag vocabulary: trails + trailheads,
 flora/fauna (+ traditional uses), geology, visible route lines, points of interest.
+**Cost model: bring-your-own-key.** Users run tagging on their own Anthropic API key (sent
+per-request, never stored — see CLAUDE.md protocol 10); the server key is an admin-only
+fallback. Consumer subscriptions (Claude Max) can't back the hosted route; the founder seeds
+AI tags locally through Claude Code sessions at zero marginal cost.
 
 **2. Route overlays are spherical polylines — and climbers can draw them.** Claude traces a
 line in a rectilinear view → convert to yaw/pitch → the Photo Sphere Viewer **markers plugin**
