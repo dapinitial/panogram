@@ -107,6 +107,21 @@ CLAUDE.md protocols 9–10. Migration `20260706180000_annotation_layer.sql` **ap
   **schema inspiration + dev-time research only** — not licensed for product use; OpenBeta stays
   the product integration.
 
+## Second auto-mode pass (2026-07-06, later)
+- **Atlas basemaps** — Void (Carto dark) / **Topo (USGS National Map)** / Terrain (OpenTopoMap)
+  switcher, persisted; the free substrate Gaia-class apps license.
+- **Avalanche chip** — `/api/avalanche` + `lib/avalanche.ts`: US zones via avalanche.org polygons
+  (point-in-polygon, cached) + Canada via avalanche.ca point endpoint; viewer shows a
+  danger-colored chip linking to the forecast only for active in-season ratings. Verified live
+  7/7 (Snoqualmie → NWAC, Garibaldi → off-season, ATX/ocean → none).
+- **MP topo-format study** — `docs/RESEARCH-mp-topo-format.md` from mp-tools' *published docs*
+  (deliberately no API calls — their script impersonates the iOS app). Key takeaways: line↔route
+  relations with pitch numbers (adopt as `route_ref`+`pitch` when OpenBeta linking lands), sparse
+  control points (validates our draw UX), typed gear markers attached to lines.
+- Walled-garden verdict recorded: onX Offroad/Backcountry/Gaia/MP have no public APIs; their
+  substrate layers (USGS topo, MVUM, PAD-US, avalanche.org) are free — assemble, don't beg.
+  PAD-US public-land + USFS MVUM overlays deferred until Atlas usage justifies them.
+
 ## Trust & safety (P0)
 - **Report** — `⋯` menu in the viewer reports a capture/creator; per-comment `⚑` reports a comment.
   Reason chips → `reports` table (RLS: file as self, admin-read).
