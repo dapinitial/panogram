@@ -64,6 +64,8 @@ export default function Immersive({
   // Sun layer (deterministic — lib/sun.ts). Null when the post has no capture geo.
   const sunPath = useMemo(() => sunPathForPano(post), [post]);
   const [sunOn, setSunOn] = useState(false);
+  // Avalanche forecast chip — shown only when an active rating covers the spot.
+  const [avy, setAvy] = useState<{ danger: string; dangerLevel: number; link: string; name: string } | null>(null);
   // Peak labels (deterministic — OSM peaks placed by bearing math).
   const [peaks, setPeaks] = useState<PeakMarker[] | null>(null);
   const [peaksOn, setPeaksOn] = useState(false);
@@ -242,6 +244,16 @@ export default function Immersive({
       loadComments(post.id, blocked).then(setComments);
       loadAnnotations(post.id).then((a) => a.length && setAnnotations(a));
     }
+    // Avalanche forecast for the capture spot (server-cached; chip renders
+    // only for an active in-season rating).
+    setAvy(null);
+    if (post.captureLat != null && post.captureLng != null) {
+      fetch(`/api/avalanche?lat=${post.captureLat}&lng=${post.captureLng}`)
+        .then((r) => r.json())
+        .then((d) => { if (d.zone && !d.zone.offSeason && d.zone.dangerLevel >= 1) setAvy(d.zone); })
+        .catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [post.id, post.authorId, post.type, blocked]);
 
   // Esc closes the pin composer first, otherwise the viewer.
@@ -379,6 +391,12 @@ export default function Immersive({
           )}
           <button className="imm-close" onClick={onClose} aria-label="Exit">✕</button>
         </div>
+        {avy && (
+          <a className="avy-chip" data-level={avy.dangerLevel} href={avy.link} target="_blank" rel="noopener noreferrer"
+            title={`Avalanche danger: ${avy.danger} — tap for the full forecast (${avy.name})`}>
+            ⚠ {avy.danger} avalanche danger · forecast ↗
+          </a>
+        )}
         {shared && <div className="toast">Link copied — anyone can step inside</div>}
         {foundMsg && <div className="toast">{foundMsg}</div>}
 
