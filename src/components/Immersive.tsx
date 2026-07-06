@@ -9,6 +9,7 @@ import { track } from "@/lib/telemetry";
 import { addAnnotation, addComment, addFind, addSighting, loadAnnotations, loadComments, loadSightings, type ReportTarget } from "@/lib/db";
 import type { SelectedMarker } from "./PanoViewerImpl";
 import { sunPathForPano } from "@/lib/sun";
+import { worldBearing } from "@/lib/geo";
 
 type ReportSubject = { type: ReportTarget; id: string; postId?: string | null; label: string };
 
@@ -242,7 +243,10 @@ export default function Immersive({
 
   async function saveRoute() {
     if (!user || !draft || draft.length < 2 || !label.trim() || !post.authorId) return;
-    const a: Annotation = { yaw: draft[0][0], pitch: draft[0][1], label: label.trim(), kind: "route", path: draft };
+    const a: Annotation = {
+      yaw: draft[0][0], pitch: draft[0][1], label: label.trim(), kind: "route", path: draft,
+      worldBearing: post.captureHeading != null ? worldBearing(post.captureHeading, draft[0][0]) : undefined,
+    };
     const ok = await addAnnotation(post.id, user.id, a);
     if (ok) {
       setAnnotations((prev) => [...prev, a]);
@@ -263,6 +267,7 @@ export default function Immersive({
     const a: Annotation = {
       yaw: pending.yaw, pitch: pending.pitch, label: label.trim(), kind,
       targetUrl: kindNeedsUrl && pinUrl.trim() ? pinUrl.trim() : undefined,
+      worldBearing: post.captureHeading != null ? worldBearing(post.captureHeading, pending.yaw) : undefined,
     };
     const ok = await addAnnotation(post.id, user.id, a);
     if (ok) {

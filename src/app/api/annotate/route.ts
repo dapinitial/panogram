@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { authConfigured, supabaseServer } from "@/lib/supabase-server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { DEFAULT_VIEWS, renderViews, viewPixelToSphere } from "@/lib/reproject";
+import { worldBearing } from "@/lib/geo";
 
 // AI vision tagging (VISION annotation layer §1) — Claude reads rectilinear
 // views rendered out of the sphere and proposes annotations, inserted with
@@ -99,7 +100,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const { data: post } = await sb.from("posts").select("id,type,title,location,storage_path").eq("id", body.postId).maybeSingle();
+  const { data: post } = await sb.from("posts").select("id,type,title,location,storage_path,capture_heading").eq("id", body.postId).maybeSingle();
   if (!post?.storage_path) {
     return NextResponse.json({ ok: false, error: "post not found or has no stored image" }, { status: 404 });
   }
@@ -154,6 +155,7 @@ export async function POST(req: Request) {
           yaw, pitch, kind: t.kind, label: t.label.trim().slice(0, 80), body: (t.body ?? "").slice(0, 500),
           poi_type: t.kind === "poi" && POI_TYPES.has(t.poi_type) ? t.poi_type : null,
           path,
+          world_bearing: post.capture_heading != null ? worldBearing(post.capture_heading, yaw) : null,
         };
       });
 

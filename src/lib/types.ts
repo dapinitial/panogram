@@ -35,6 +35,7 @@ export interface Annotation {
 
   // Annotation layer (VISION.md) — topo lines, POIs, the safety rail
   source?: "human" | "ai";      // AI-proposed tags are reviewable, never authoritative
+  worldBearing?: number;        // compass degrees from the capture spot (lib/geo.ts)
   path?: [number, number][];    // spherical polyline [[yaw,pitch],…] radians — 'route' lines
   poiType?: PoiType;            // 'poi' — what the placeable thing is
   safetyCritical?: boolean;     // rappel/anchor/crack — renders UNVERIFIED until confirmed

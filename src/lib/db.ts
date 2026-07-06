@@ -150,6 +150,7 @@ export async function addAnnotation(postId: string, userId: string, a: Annotatio
     post_id: postId, author_id: userId, yaw: a.yaw, pitch: a.pitch, label: a.label, kind: a.kind,
     target_url: a.targetUrl ?? null, target_post_id: a.targetPostId ?? null,
     path: a.path ?? null, poi_type: a.poiType ?? null, // source defaults to 'human'
+    world_bearing: a.worldBearing ?? null,
   });
   return !error;
 }
