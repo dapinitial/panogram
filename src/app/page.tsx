@@ -8,6 +8,7 @@ import { browserSupabase } from "@/lib/supabase-browser";
 import { loadFeed, loadMyEngagement, loadNotifications, loadMyBlocks, loadMyBlockedProfiles, blockUser, unblockUser, toggleLike, toggleSave, toggleFollow, followerCount, type Notification } from "@/lib/db";
 import Nav, { type Tab } from "@/components/Nav";
 import Feed from "@/components/Feed";
+import MapView from "@/components/MapView";
 import Immersive from "@/components/Immersive";
 import Upload from "@/components/Upload";
 import AuthSheet from "@/components/AuthSheet";
@@ -166,6 +167,16 @@ export default function Home() {
             ) : (
               <p style={{ color: "var(--ink-faint)", padding: "40px 0" }}>No panoramas match “{query}”.</p>
             )}
+          </>
+        )}
+
+        {tab === "Atlas" && (
+          <>
+            <header className="hero">
+              <div className="eyebrow">Atlas</div>
+              <h1>Every capture, <span className="gradient-text">on the map.</span></h1>
+            </header>
+            <MapView posts={posts} onOpen={setViewingId} />
           </>
         )}
 

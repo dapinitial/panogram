@@ -3,7 +3,7 @@
 import { track } from "@/lib/telemetry";
 import ThemeToggle from "./ThemeToggle";
 
-const TABS = ["Feed", "Explore", "Profile"] as const;
+const TABS = ["Feed", "Explore", "Atlas", "Profile"] as const;
 export type Tab = (typeof TABS)[number];
 
 export default function Nav({

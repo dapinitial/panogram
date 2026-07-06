@@ -478,6 +478,32 @@ body {
 }
 .pg-marker--sun .pg-marker-label { border-color: rgba(255,205,100,0.45); }
 
+/* ── the Atlas (MapLibre) ───────────────────────────────────────────────── */
+.map-wrap { position: relative; margin-top: 8px; }
+.map-stage {
+  height: min(64vh, 640px); border-radius: 18px; overflow: hidden;
+  border: 1px solid var(--hair); background: #0a0a12;
+}
+.map-stage .maplibregl-ctrl-attrib { background: rgba(6,6,11,0.6); color: var(--ink-faint); font-size: 10px; }
+.map-stage .maplibregl-ctrl-attrib a { color: var(--ink-dim); }
+.map-pin { position: relative; display: grid; place-items: center; background: none; border: 0; cursor: pointer; }
+.map-pin-dot {
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.85); box-shadow: 0 0 14px var(--glow), 0 2px 8px rgba(0,0,0,0.5);
+}
+.map-pin-label {
+  position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  white-space: nowrap; font-family: var(--font-d); font-size: 11px; letter-spacing: 0.04em;
+  color: #fff; padding: 4px 10px; border-radius: 999px;
+  background: rgba(6,6,11,0.75); border: 1px solid var(--hair-bright); backdrop-filter: blur(8px);
+  opacity: 0; pointer-events: none; transition: opacity 0.15s ease;
+}
+.map-pin:hover .map-pin-label { opacity: 1; }
+.map-empty {
+  position: absolute; inset: auto 24px 24px 24px; padding: 18px 22px; border-radius: 14px;
+}
+.map-empty p { color: var(--ink-dim); font-size: 13px; line-height: 1.55; margin-top: 6px; }
+
 /* upload chamber: capture-geo detected chip */
 .geo-chip {
   margin-left: 10px; padding: 3px 10px; border-radius: 999px;
