@@ -39,6 +39,10 @@ export default function Immersive({
   const [panelOpen, setPanelOpen] = useState(false);
   const [text, setText] = useState("");
   const [addMode, setAddMode] = useState(false);
+  // Topo drawing (VISION annotation layer §2): clicks accumulate into a
+  // spherical polyline. null = not drawing; [] = armed, waiting for first point.
+  const [draft, setDraft] = useState<[number, number][] | null>(null);
+  const [naming, setNaming] = useState(false);
   const [pending, setPending] = useState<{ yaw: number; pitch: number } | null>(null);
   const [label, setLabel] = useState("");
   const [kind, setKind] = useState<Annotation["kind"]>("note");
@@ -134,19 +138,44 @@ export default function Immersive({
       else if (ad) closeAd();
       else if (portal) setPortal(null);
       else if (menuOpen) setMenuOpen(false);
+      else if (naming) setNaming(false);
+      else if (draft) setDraft(null);
       else if (pending) setPending(null);
       else onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending, menuOpen, report, ad, portal, onClose]);
+  }, [pending, menuOpen, report, ad, portal, draft, naming, onClose]);
 
   function onPlace(yaw: number, pitch: number) {
-    if (!user) { setAddMode(false); return onAuthRequired(); }
+    if (!user) { setAddMode(false); setDraft(null); return onAuthRequired(); }
+    if (draft) { setDraft([...draft, [yaw, pitch]]); return; } // drawing: extend the line
     setPending({ yaw, pitch });
     setLabel(""); setPinUrl("");
   }
+
+  function toggleDraw() {
+    if (!user) return onAuthRequired();
+    setAddMode(false); setPending(null); setNaming(false); setLabel("");
+    setDraft((d) => (d ? null : []));
+  }
+
+  async function saveRoute() {
+    if (!user || !draft || draft.length < 2 || !label.trim() || !post.authorId) return;
+    const a: Annotation = { yaw: draft[0][0], pitch: draft[0][1], label: label.trim(), kind: "route", path: draft };
+    const ok = await addAnnotation(post.id, user.id, a);
+    if (ok) {
+      setAnnotations((prev) => [...prev, a]);
+      track("route_draw", { postId: post.id, props: { points: draft.length } });
+    }
+    setDraft(null); setNaming(false); setLabel("");
+  }
+
+  // Live preview: the in-progress line rides into the viewer as a route annotation.
+  const viewerAnnotations = draft?.length
+    ? [...annotations, { yaw: draft[0][0], pitch: draft[0][1], label: "drawing…", kind: "route" as const, path: draft }]
+    : annotations;
 
   const kindNeedsUrl = kind === "sponsored" || kind === "product" || kind === "link";
 
@@ -175,7 +204,7 @@ export default function Immersive({
   return (
     <div className="imm">
       <div className="imm-stage">
-        <PanoViewer post={post} annotations={annotations} addMode={addMode} onPlace={onPlace} onSelect={onSelect} />
+        <PanoViewer post={post} annotations={viewerAnnotations} addMode={addMode || !!draft} onPlace={onPlace} onSelect={onSelect} />
 
         <svg className="gaze" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.5">
           <circle cx="24" cy="24" r="13" opacity="0.5" /><circle cx="24" cy="24" r="2.5" fill="currentColor" stroke="none" />
@@ -275,8 +304,42 @@ export default function Immersive({
         {addMode && !pending && (
           <div className="imm-bottom"><div className="glasses-hint">⌖ Click anywhere in the scene to drop a spatial tag</div></div>
         )}
-        {!addMode && (
+        {!addMode && !draft && (
           <div className="imm-bottom"><div className="glasses-hint">⌖ Drag to look around · <b>Optimized for spatial displays</b></div></div>
+        )}
+
+        {/* draw-mode HUD — the topo tool */}
+        {draft && !naming && (
+          <div className="imm-bottom">
+            <div className="glasses-hint">
+              ✎ {draft.length === 0
+                ? "Click the rock to start the line — bottom to top, like a guidebook topo"
+                : `${draft.length} point${draft.length === 1 ? "" : "s"} — click to extend the line`}
+              {draft.length > 0 && (
+                <button className="hint-act" onClick={() => setDraft(draft.slice(0, -1))}>↩ Undo</button>
+              )}
+              <button className="hint-act" onClick={() => setDraft(null)}>✕ Cancel</button>
+              {draft.length > 1 && (
+                <button className="hint-act hint-act--go" onClick={() => { setLabel(""); setNaming(true); }}>✓ Finish line</button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* route naming composer */}
+        {draft && naming && (
+          <div className="pin-compose glass">
+            <div className="eyebrow">New line · {draft.length} points</div>
+            <input autoFocus placeholder="Name it — route, rap line, approach…" value={label}
+              onChange={(e) => setLabel(e.target.value)} onKeyDown={(e) => e.key === "Enter" && saveRoute()} />
+            <p style={{ color: "var(--ink-dim)", fontSize: 12, lineHeight: 1.5, marginTop: 8 }}>
+              Lines are observations, not endorsements — safety-critical beta stays marked unverified until the community confirms it.
+            </p>
+            <div className="sheet-foot" style={{ marginTop: 14 }}>
+              <button className="btn-sec" onClick={() => setNaming(false)}>Keep drawing</button>
+              <button className="btn-upload" disabled={!label.trim()} onClick={saveRoute}>Save line</button>
+            </div>
+          </div>
         )}
 
         {/* pin label composer */}
@@ -308,9 +371,13 @@ export default function Immersive({
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
             <span>{comments.length}</span>
           </button>
-          <button className="rail-btn" data-on={addMode} onClick={() => (user ? setAddMode((v) => !v) : onAuthRequired())} title="Add spatial tag">
+          <button className="rail-btn" data-on={addMode} onClick={() => { if (!user) return onAuthRequired(); setDraft(null); setAddMode((v) => !v); }} title="Add spatial tag">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="11" r="8" /><path d="M12 8v6M9 11h6" /></svg>
             <span>tag</span>
+          </button>
+          <button className="rail-btn" data-on={!!draft} onClick={toggleDraw} title="Draw a line — route topo, rap line, approach">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 20c3-1 2.5-5 5-7s5-1.5 7-5 2-5 2-5" /><circle cx="4" cy="20" r="1.6" fill="currentColor" stroke="none" /><circle cx="18" cy="3" r="1.6" fill="currentColor" stroke="none" /></svg>
+            <span>draw</span>
           </button>
         </div>
 
