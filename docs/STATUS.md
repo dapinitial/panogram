@@ -59,6 +59,28 @@ storage authenticated-write; secret hook + `.githooks` active.
 - `/admin` **Monetization panel**: impressions, CTR, conversions, portal peeks, and a clearly-modeled
   $28-CPM run-rate — the fundraising data room. Revenue is labeled *modeled*, not booked.
 
+## Annotation layer (shipped 2026-07-06)
+The concrete build-out of VISION's "annotate" wedge — see VISION.md §"The annotation layer" and
+CLAUDE.md protocols 9–10. Migration `20260706180000_annotation_layer.sql` **applied to prod**.
+- **Topo drawing** — "draw" rail button in the viewer: click-to-extend spherical polylines with
+  live preview, undo/finish, named + saved as `kind='route'` annotations (`path` jsonb).
+- **Crowdsourced POIs + sightings** — camps/water/rappel/cairns/etc. (`poi_type`); tapping a marker
+  opens the sighting sheet (✓ it's there / ✕ not as described / ∅ gone + field note + sighter GPS =
+  native comment + trust signal + triangulation sample). `sightings` table, RLS'd.
+- **Safety rail (inviolable)** — `is_safety_critical` (rappel/anchor/crack) and all `source='ai'`
+  rows render dashed-amber *unverified* until confirmed sightings exist.
+- **Sun layer** — deterministic (`lib/sun.ts`, no deps): "sun" rail button overlays today's arc +
+  rise/set times, positioned via capture GPS/heading.
+- **Capture geo** — `lib/exif.ts` extracts GPS + heading (EXIF GPS IFD, XMP PoseHeadingDegrees /
+  GimbalYawDegree) on upload; persists `capture_lat/lng/heading`; gold geo chip in the chamber.
+- **AI vision tagging** — `/api/annotate`: sharp-based equirect→rectilinear reprojection
+  (`lib/reproject.ts`, math verified vs synthetic pano), Claude (`claude-opus-4-8`) with JSON-schema
+  output, pixel→sphere conversion, rows inserted as the requesting user with `source='ai'`.
+  **BYOK**: caller's Anthropic key per request, never stored; `ANTHROPIC_API_KEY` = admin-only
+  fallback. "✨ AI annotate" sheet in the viewer menu.
+- Telemetry vocab added: `route_draw · sighting · ai_tag_run · sun_path_view` (+ `upload_publish`
+  now carries `hasGeo/hasHeading`).
+
 ## Trust & safety (P0)
 - **Report** — `⋯` menu in the viewer reports a capture/creator; per-comment `⚑` reports a comment.
   Reason chips → `reports` table (RLS: file as self, admin-read).
@@ -69,7 +91,7 @@ storage authenticated-write; secret hook + `.githooks` active.
   **Dismiss** closes the report. Actions hit `POST /api/moderation`, gated by `ADMIN_KEY`.
 - Telemetry vocab added: `report · block · mod_remove · mod_dismiss`.
 - Migration: `supabase/migrations/20260629210529_trust_and_safety.sql` (blocks, reports, posts soft-remove,
-  rewritten public-read policy). **Not yet pushed to prod** — pending `supabase db push`.
+  rewritten public-read policy). **Applied to prod.**
 
 ## Deploy / ops (via shipmate)
 shipmate (`~/Sites/shipmate`, `dapinitial/shipmate`) is the deploy tool.
@@ -83,9 +105,15 @@ Commits human-authored, **no AI attribution**. Secrets only in `.env.local`/`.en
 never committed. Per-project Supabase account isolation via `.envrc` + keychain.
 
 ## Open / next (priority order)
-1. ~~**Trust & safety** — block / report / basic moderation.~~ **Built** (see above); pending prod
-   `db push`. Follow-ups: report a creator from `/u/[handle]`, email alert on new reports, rate-limit
-   report spam, "blocked users" management screen.
+0. **Annotation-layer follow-ups** — verify PSV yaw sign + EXIF extraction against a *real* Osmo 360
+   file (each has one documented flip point if mirrored); rate-limit `/api/annotate`; surface
+   `ai_tag_run` + sightings in `/admin`; sun arc assumes north-facing center when heading is missing
+   (add a manual heading nudge in Upload); founder AI-tagging runbook via Claude Code (CLAUDE.md
+   protocol 10); ATX→Squamish trip (summer 2026) = seed-content + eval-dataset collection, protocol
+   in VISION.md.
+1. ~~**Trust & safety** — block / report / basic moderation.~~ **Built**; migration applied.
+   Follow-ups: rate-limit report spam (report-from-profile, email alert, blocked-manager shipped —
+   see "Trust & safety follow-ups").
 2. ~~**Wedge & monetization** — AI-native ad layer on the spatial annotations; `/admin` data room.~~
    **Built** (see above). Follow-ups: real advertiser/campaign objects (vs. denormalized labels);
    AI-native targeting/placement; charge a CPM; per-campaign breakdown in `/admin`.
