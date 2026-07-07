@@ -109,7 +109,10 @@ export default function Immersive({
         }
         if (cur.length) out.push(cur);
       }
-      return { label: t.label || "Track", segments: out };
+      // Recency + credit ride the tooltip — a dated line is beta, an undated one is a doodle.
+      const rec = t.recordedAt ? ` · ${new Date(t.recordedAt).toLocaleDateString([], { month: "short", year: "numeric" })}` : "";
+      const cred = t.credit ? ` · by ${t.credit}` : "";
+      return { label: `${t.label || "Track"}${rec}${cred}`, segments: out };
     });
   }, [tracks, post.captureLat, post.captureLng, post.captureHeading]);
   // Sighting sheet — confirm/dispute a tapped annotation from the field.

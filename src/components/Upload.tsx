@@ -54,6 +54,10 @@ export default function Upload({
   const gpxInputRef = useRef<HTMLInputElement>(null);
   const [gpxTrack, setGpxTrack] = useState<ParsedTrack | null>(null);
   const [trackErr, setTrackErr] = useState("");
+  // Provenance for tracks shared with the recorder's explicit permission —
+  // consent makes it publishable, credit is how we honor it.
+  const [credit, setCredit] = useState("");
+  const [creditUrl, setCreditUrl] = useState("");
 
   // Candidate POIs mined from the GPX (waypoints + timed stops) — owner
   // confirms each one; nothing auto-publishes (a pause can be lost signal).
@@ -125,6 +129,7 @@ export default function Upload({
             label: gpxTrack.name ?? "Track",
             segments: gpxTrack.segments.map((seg) => seg.map((p) => [p.lat, p.lng, p.ele] as [number, number, number | null])),
             distanceM: gpxTrack.distanceM, gainM: gpxTrack.gainM,
+            recordedAt: gpxTrack.recordedAt, credit: credit.trim(), creditUrl: creditUrl.trim() || null,
           });
           if (!ok) setTrackErr("Post published, but the track failed to save — re-attach it later.");
           // Confirmed candidates → POI annotations, projected onto the sphere.
@@ -264,12 +269,19 @@ export default function Upload({
             <div className="gpx-chip">
               🥾 <b>{gpxTrack.name ?? "Track"}</b> · {(gpxTrack.distanceM / 1000).toFixed(1)}km · +{Math.round(gpxTrack.gainM)}m
               {gpxTrack.segments.length > 1 ? ` · ${gpxTrack.segments.length} segments` : ""}
+              {gpxTrack.recordedAt ? ` · rec ${new Date(gpxTrack.recordedAt).toLocaleDateString([], { month: "short", year: "numeric" })}` : ""}
               <button className="btn-sec" style={{ marginLeft: "auto" }} onClick={() => { setGpxTrack(null); setCandidates([]); }}>Remove</button>
             </div>
           ) : (
             <button className="btn-sec" onClick={() => gpxInputRef.current?.click()}>Attach GPX</button>
           )}
           {trackErr && <p style={{ color: "#ffb454", fontSize: 12, marginTop: 6 }}>⚠ {trackErr}</p>}
+          {gpxTrack && (
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <input placeholder="Credit (someone else's track, with permission)" value={credit} onChange={(e) => setCredit(e.target.value)} />
+              <input placeholder="Their link (optional)" value={creditUrl} onChange={(e) => setCreditUrl(e.target.value)} />
+            </div>
+          )}
 
           {/* Mined candidates — waypoints + timed stops the owner can confirm */}
           {candidates.length > 0 && (

@@ -184,30 +184,34 @@ export async function addSighting(
 // (Graceful pre-migration: selects error server-side and return [] / false.)
 
 // points jsonb holds segments: [[[lat,lng,ele|null],…],…]
-type TrackRow = { id: string; post_id: string; label: string; points: [number, number, number | null][][]; distance_m: number; gain_m: number };
-const rowToTrack = (r: TrackRow): Track => ({ id: r.id, postId: r.post_id, label: r.label, segments: r.points, distanceM: r.distance_m, gainM: r.gain_m });
+type TrackRow = { id: string; post_id: string; label: string; points: [number, number, number | null][][]; distance_m: number; gain_m: number; recorded_at: string | null; credit: string | null; credit_url: string | null };
+const rowToTrack = (r: TrackRow): Track => ({
+  id: r.id, postId: r.post_id, label: r.label, segments: r.points, distanceM: r.distance_m, gainM: r.gain_m,
+  recordedAt: r.recorded_at, credit: r.credit ?? "", creditUrl: r.credit_url,
+});
 
 export async function loadTracks(postId: string): Promise<Track[]> {
   const sb = browserSupabase(); if (!sb) return [];
-  const { data } = await sb.from("tracks").select("id,post_id,label,points,distance_m,gain_m").eq("post_id", postId);
+  const { data } = await sb.from("tracks").select("id,post_id,label,points,distance_m,gain_m,recorded_at,credit,credit_url").eq("post_id", postId);
   return ((data as TrackRow[]) ?? []).map(rowToTrack);
 }
 
 /** All tracks for a set of posts — the Atlas overlay pulls these in one query. */
 export async function loadTracksForPosts(postIds: string[]): Promise<Track[]> {
   const sb = browserSupabase(); if (!sb || !postIds.length) return [];
-  const { data } = await sb.from("tracks").select("id,post_id,label,points,distance_m,gain_m").in("post_id", postIds);
+  const { data } = await sb.from("tracks").select("id,post_id,label,points,distance_m,gain_m,recorded_at,credit,credit_url").in("post_id", postIds);
   return ((data as TrackRow[]) ?? []).map(rowToTrack);
 }
 
 export async function addTrack(
   postId: string, userId: string,
-  t: { label: string; segments: [number, number, number | null][][]; distanceM: number; gainM: number },
+  t: { label: string; segments: [number, number, number | null][][]; distanceM: number; gainM: number; recordedAt?: string | null; credit?: string; creditUrl?: string | null },
 ): Promise<boolean> {
   const sb = browserSupabase(); if (!sb) return false;
   const { error } = await sb.from("tracks").insert({
     post_id: postId, author_id: userId, label: t.label.slice(0, 120),
     points: t.segments, distance_m: t.distanceM, gain_m: t.gainM,
+    recorded_at: t.recordedAt ?? null, credit: (t.credit ?? "").slice(0, 120), credit_url: t.creditUrl || null,
   });
   return !error;
 }

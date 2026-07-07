@@ -32,6 +32,7 @@ export interface ParsedTrack {
   distanceM: number;        // within-segment only — gaps don't count
   gainM: number;            // total ascent (3m threshold to ignore GPS jitter)
   name: string | null;
+  recordedAt: string | null; // ISO — first <time> in the track (recency is beta gold)
   waypoints: GpxWaypoint[];
   gaps: GpxGap[];
 }
@@ -143,7 +144,13 @@ export function parseGpx(xml: string): ParsedTrack | null {
   const segments = rawSegs.map(({ pts }) =>
     simplify(pts, Math.max(8, Math.round((pts.length / rawCount) * MAX_POINTS))));
 
-  return { segments, rawCount, distanceM: dist, gainM: gain, name, waypoints, gaps };
+  const firstTime = rawSegs.flatMap((s) => s.times).find((t) => t != null) ?? null;
+
+  return {
+    segments, rawCount, distanceM: dist, gainM: gain, name,
+    recordedAt: firstTime ? new Date(firstTime).toISOString() : null,
+    waypoints, gaps,
+  };
 }
 
 // Douglas-Peucker in 3D local meters (elevation included — the pano projection

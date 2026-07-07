@@ -74,6 +74,9 @@ export interface Track {
   segments: [number, number, number | null][][];
   distanceM: number;
   gainM: number;
+  recordedAt: string | null;  // when the line was actually traveled — recency is beta
+  credit: string;             // recorder's name when shared with permission ('' = uploader's own)
+  creditUrl: string | null;
 }
 
 // A sighting — the native comment, a reputation signal, and a triangulation
