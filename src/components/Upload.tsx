@@ -7,6 +7,8 @@ import { browserSupabase } from "@/lib/supabase-browser";
 import { track } from "@/lib/telemetry";
 import { extractCaptureGeo, type CaptureGeo } from "@/lib/exif";
 import { downscaleForViewer } from "@/lib/downscale";
+import { parseGpx, type ParsedTrack } from "@/lib/gpx";
+import { addTrack } from "@/lib/db";
 
 const TYPES: MediaType[] = ["panoramic_photo", "360_photo", "360_video", "180_photo", "180_video"];
 
@@ -47,6 +49,17 @@ export default function Upload({
   const [busy, setBusy] = useState(false);
   const [geo, setGeo] = useState<CaptureGeo>({});
   const [manualHeading, setManualHeading] = useState<number | null>(null);
+  const gpxInputRef = useRef<HTMLInputElement>(null);
+  const [gpxTrack, setGpxTrack] = useState<ParsedTrack | null>(null);
+  const [trackErr, setTrackErr] = useState("");
+
+  async function takeGpx(f: File | undefined) {
+    if (!f) return;
+    setTrackErr("");
+    const parsed = parseGpx(await f.text());
+    if (!parsed) { setGpxTrack(null); setTrackErr("Couldn't read that file as a GPX track."); return; }
+    setGpxTrack(parsed);
+  }
 
   function take(f: File | undefined) {
     if (!f) return;
@@ -77,7 +90,16 @@ export default function Upload({
         })
         .select("id")
         .single();
-      if (!error && data) id = data.id as string;
+      if (!error && data) {
+        id = data.id as string;
+        if (gpxTrack) {
+          await addTrack(id, user.id, {
+            label: gpxTrack.name ?? "Track",
+            points: gpxTrack.points.map((p) => [p.lat, p.lng, p.ele] as [number, number, number | null]),
+            distanceM: gpxTrack.distanceM, gainM: gpxTrack.gainM,
+          });
+        }
+      }
     }
 
     const post: Post = {
@@ -93,7 +115,7 @@ export default function Upload({
       saves: 0,
       captureLat: geo.lat, captureLng: geo.lng, captureHeading: geo.heading,
     };
-    track("upload_publish", { postId: post.id, props: { type, persisted: !!(user && path), hasGeo: geo.lat !== undefined, hasHeading: geo.heading !== undefined, resized } });
+    track("upload_publish", { postId: post.id, props: { type, persisted: !!(user && path), hasGeo: geo.lat !== undefined, hasHeading: geo.heading !== undefined, resized, hasTrack: !!gpxTrack } });
     onPublish(post);
   }
 
@@ -180,6 +202,22 @@ export default function Upload({
             </div>
           </div>
         )}
+
+        {/* Optional recorded track — the line you traveled, drawn on the map
+            and (with capture GPS) projected into the pano itself. */}
+        <div className="field">
+          <label>Track <span style={{ color: "var(--ink-faint)", fontWeight: 400 }}>(optional GPX — your recorded route)</span></label>
+          <input ref={gpxInputRef} type="file" accept=".gpx,application/gpx+xml" hidden onChange={(e) => takeGpx(e.target.files?.[0])} />
+          {gpxTrack ? (
+            <div className="gpx-chip">
+              🥾 <b>{gpxTrack.name ?? "Track"}</b> · {(gpxTrack.distanceM / 1000).toFixed(1)}km · +{Math.round(gpxTrack.gainM)}m · {gpxTrack.points.length} pts
+              <button className="btn-sec" style={{ marginLeft: "auto" }} onClick={() => setGpxTrack(null)}>Remove</button>
+            </div>
+          ) : (
+            <button className="btn-sec" onClick={() => gpxInputRef.current?.click()}>Attach GPX</button>
+          )}
+          {trackErr && <p style={{ color: "#ffb454", fontSize: 12, marginTop: 6 }}>⚠ {trackErr}</p>}
+        </div>
 
         <div className="sheet-foot">
           <span className="sheet-note">{willSave ? "Saves to your library" : "Sign in to save — publishing locally for now"}</span>

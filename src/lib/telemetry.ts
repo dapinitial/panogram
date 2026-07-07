@@ -13,6 +13,7 @@ export type EventName =
   | "ai_tag_run"
   | "sun_path_view"
   | "peaks_view"
+  | "track_view"
   | "cache_find"
   | "comment"
   | "follow"

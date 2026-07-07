@@ -517,6 +517,14 @@ body {
 }
 .map-empty p { color: var(--ink-dim); font-size: 13px; line-height: 1.55; margin-top: 6px; }
 
+/* upload: attached GPX track chip */
+.gpx-chip {
+  display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 12px;
+  background: var(--panel); border: 1px solid var(--hair); color: var(--ink-dim);
+  font-size: 13px;
+}
+.gpx-chip b { color: var(--ink); }
+
 /* avalanche forecast chip — safety info, colored by danger level */
 .avy-chip {
   position: absolute; top: 74px; left: 18px; z-index: 5;

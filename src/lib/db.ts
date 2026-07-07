@@ -2,7 +2,7 @@
 // here so components stay declarative. Counts are tallied client-side — fine at
 // prototype scale; swap for a SQL view if data grows large.
 import { browserSupabase } from "./supabase-browser";
-import type { Annotation, Author, Comment, Post, Sighting } from "./types";
+import type { Annotation, Author, Comment, Post, Sighting, Track } from "./types";
 
 const SAMPLE = "https://photo-sphere-viewer-data.netlify.app/assets/sphere-small.jpg";
 
@@ -177,6 +177,37 @@ export async function addSighting(
     { annotation_id: annotationId, user_id: userId, verdict, note: opts.note ?? "", sighted_lat: opts.lat ?? null, sighted_lng: opts.lng ?? null },
     { onConflict: "annotation_id,user_id" },
   );
+  return !error;
+}
+
+// ── Tracks ── recorded GPX lines attached to captures ───────────────────────
+// (Graceful pre-migration: selects error server-side and return [] / false.)
+
+type TrackRow = { id: string; post_id: string; label: string; points: [number, number, number | null][]; distance_m: number; gain_m: number };
+const rowToTrack = (r: TrackRow): Track => ({ id: r.id, postId: r.post_id, label: r.label, points: r.points, distanceM: r.distance_m, gainM: r.gain_m });
+
+export async function loadTracks(postId: string): Promise<Track[]> {
+  const sb = browserSupabase(); if (!sb) return [];
+  const { data } = await sb.from("tracks").select("id,post_id,label,points,distance_m,gain_m").eq("post_id", postId);
+  return ((data as TrackRow[]) ?? []).map(rowToTrack);
+}
+
+/** All tracks for a set of posts — the Atlas overlay pulls these in one query. */
+export async function loadTracksForPosts(postIds: string[]): Promise<Track[]> {
+  const sb = browserSupabase(); if (!sb || !postIds.length) return [];
+  const { data } = await sb.from("tracks").select("id,post_id,label,points,distance_m,gain_m").in("post_id", postIds);
+  return ((data as TrackRow[]) ?? []).map(rowToTrack);
+}
+
+export async function addTrack(
+  postId: string, userId: string,
+  t: { label: string; points: [number, number, number | null][]; distanceM: number; gainM: number },
+): Promise<boolean> {
+  const sb = browserSupabase(); if (!sb) return false;
+  const { error } = await sb.from("tracks").insert({
+    post_id: postId, author_id: userId, label: t.label.slice(0, 120),
+    points: t.points, distance_m: t.distanceM, gain_m: t.gainM,
+  });
   return !error;
 }
 
