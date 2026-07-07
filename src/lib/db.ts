@@ -183,8 +183,9 @@ export async function addSighting(
 // ── Tracks ── recorded GPX lines attached to captures ───────────────────────
 // (Graceful pre-migration: selects error server-side and return [] / false.)
 
-type TrackRow = { id: string; post_id: string; label: string; points: [number, number, number | null][]; distance_m: number; gain_m: number };
-const rowToTrack = (r: TrackRow): Track => ({ id: r.id, postId: r.post_id, label: r.label, points: r.points, distanceM: r.distance_m, gainM: r.gain_m });
+// points jsonb holds segments: [[[lat,lng,ele|null],…],…]
+type TrackRow = { id: string; post_id: string; label: string; points: [number, number, number | null][][]; distance_m: number; gain_m: number };
+const rowToTrack = (r: TrackRow): Track => ({ id: r.id, postId: r.post_id, label: r.label, segments: r.points, distanceM: r.distance_m, gainM: r.gain_m });
 
 export async function loadTracks(postId: string): Promise<Track[]> {
   const sb = browserSupabase(); if (!sb) return [];
@@ -201,12 +202,12 @@ export async function loadTracksForPosts(postIds: string[]): Promise<Track[]> {
 
 export async function addTrack(
   postId: string, userId: string,
-  t: { label: string; points: [number, number, number | null][]; distanceM: number; gainM: number },
+  t: { label: string; segments: [number, number, number | null][][]; distanceM: number; gainM: number },
 ): Promise<boolean> {
   const sb = browserSupabase(); if (!sb) return false;
   const { error } = await sb.from("tracks").insert({
     post_id: postId, author_id: userId, label: t.label.slice(0, 120),
-    points: t.points, distance_m: t.distanceM, gain_m: t.gainM,
+    points: t.segments, distance_m: t.distanceM, gain_m: t.gainM,
   });
   return !error;
 }

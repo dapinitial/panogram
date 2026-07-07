@@ -78,30 +78,38 @@ export default function Immersive({
   // Track point (lat,lng,ele) → sphere (yaw,pitch): bearing minus heading for
   // yaw; elevation delta over ground distance for pitch. Camera elevation ≈
   // the nearest track point's elevation (the recorder stood roughly there).
-  // Segments split where consecutive yaw jumps > π so the polyline never
-  // shortcuts across the pano seam.
+  // GPX segments stay separate (recorder pauses never bridge), and each is
+  // further split where consecutive yaw jumps > π (the pano seam) or a point
+  // sits under the camera. REQUIRES a real compass heading — projecting with
+  // an assumed north-facing center draws the route rotated wrong, silently
+  // (shotgundetour review, finding 5).
   const trackOverlays = useMemo<TrackOverlay[]>(() => {
-    if (!tracks.length || post.captureLat == null || post.captureLng == null) return [];
-    const heading = post.captureHeading ?? 0;
+    if (!tracks.length || post.captureLat == null || post.captureLng == null || post.captureHeading == null) return [];
+    const heading = post.captureHeading;
     const TWO_PI = 2 * Math.PI;
     return tracks.map((t) => {
+      const flat = t.segments.flat();
       let camEle: number | null = null, best = Infinity;
-      for (const [lat, lng, ele] of t.points) {
+      for (const [lat, lng, ele] of flat) {
         const d = distanceM(post.captureLat!, post.captureLng!, lat, lng);
         if (d < best && ele != null) { best = d; camEle = ele; }
       }
-      const segments: [number, number][][] = [[]];
-      let prevYaw: number | null = null;
-      for (const [lat, lng, ele] of t.points) {
-        const dist = distanceM(post.captureLat!, post.captureLng!, lat, lng);
-        if (dist < 15) { prevYaw = null; segments.push([]); continue; } // under the camera — unstable
-        const yaw = ((((bearingBetween(post.captureLat!, post.captureLng!, lat, lng) - heading) * Math.PI) / 180) % TWO_PI + TWO_PI) % TWO_PI;
-        const pitch = ele != null && camEle != null ? Math.atan2(ele - camEle - 1.6, dist) : 0;
-        if (prevYaw != null && Math.abs(yaw - prevYaw) > Math.PI) segments.push([]); // seam crossing
-        segments[segments.length - 1].push([yaw, pitch]);
-        prevYaw = yaw;
+      const out: [number, number][][] = [];
+      for (const seg of t.segments) {
+        let cur: [number, number][] = [];
+        let prevYaw: number | null = null;
+        for (const [lat, lng, ele] of seg) {
+          const dist = distanceM(post.captureLat!, post.captureLng!, lat, lng);
+          if (dist < 15) { if (cur.length) out.push(cur); cur = []; prevYaw = null; continue; }
+          const yaw = ((((bearingBetween(post.captureLat!, post.captureLng!, lat, lng) - heading) * Math.PI) / 180) % TWO_PI + TWO_PI) % TWO_PI;
+          const pitch = ele != null && camEle != null ? Math.atan2(ele - camEle - 1.6, dist) : 0;
+          if (prevYaw != null && Math.abs(yaw - prevYaw) > Math.PI) { if (cur.length) out.push(cur); cur = []; }
+          cur.push([yaw, pitch]);
+          prevYaw = yaw;
+        }
+        if (cur.length) out.push(cur);
       }
-      return { label: t.label || "Track", segments };
+      return { label: t.label || "Track", segments: out };
     });
   }, [tracks, post.captureLat, post.captureLng, post.captureHeading]);
   // Sighting sheet — confirm/dispute a tapped annotation from the field.

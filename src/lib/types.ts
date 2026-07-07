@@ -65,12 +65,13 @@ export const POI: Record<PoiType, { label: string; safetyCritical: boolean }> = 
 };
 
 // A recorded GPX track attached to a capture (mirrors the `tracks` table).
-// points: simplified [[lat, lng, ele|null], …].
+// segments: simplified [[lat, lng, ele|null], …] per <trkseg> — never bridged
+// across recorder pauses.
 export interface Track {
   id: string;
   postId: string;
   label: string;
-  points: [number, number, number | null][];
+  segments: [number, number, number | null][][];
   distanceM: number;
   gainM: number;
 }

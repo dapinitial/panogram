@@ -8,7 +8,9 @@ import { track } from "@/lib/telemetry";
 import { extractCaptureGeo, type CaptureGeo } from "@/lib/exif";
 import { downscaleForViewer } from "@/lib/downscale";
 import { parseGpx, type ParsedTrack } from "@/lib/gpx";
-import { addTrack } from "@/lib/db";
+import { addTrack, addAnnotation } from "@/lib/db";
+import { bearingBetween, distanceM } from "@/lib/geo";
+import type { PoiType } from "@/lib/types";
 
 const TYPES: MediaType[] = ["panoramic_photo", "360_photo", "360_video", "180_photo", "180_video"];
 
@@ -53,12 +55,38 @@ export default function Upload({
   const [gpxTrack, setGpxTrack] = useState<ParsedTrack | null>(null);
   const [trackErr, setTrackErr] = useState("");
 
+  // Candidate POIs mined from the GPX (waypoints + timed stops) — owner
+  // confirms each one; nothing auto-publishes (a pause can be lost signal).
+  type Candidate = { include: boolean; label: string; poiType: PoiType; lat: number; lng: number; ele: number | null; origin: "waypoint" | "stop" };
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
+
+  const SYM_TO_POI: Record<string, PoiType> = {
+    campground: "camp", camp: "camp", tent: "camp",
+    "drinking water": "water", water: "water", "water source": "water",
+    summit: "summit", "trail head": "trailhead", trailhead: "trailhead",
+  };
+
   async function takeGpx(f: File | undefined) {
     if (!f) return;
     setTrackErr("");
+    if (f.size > 25 * 1024 * 1024) { setGpxTrack(null); setTrackErr("GPX too large (25MB max)."); return; }
     const parsed = parseGpx(await f.text());
     if (!parsed) { setGpxTrack(null); setTrackErr("Couldn't read that file as a GPX track."); return; }
     setGpxTrack(parsed);
+    setCandidates([
+      ...parsed.waypoints.map((w): Candidate => ({
+        include: false, origin: "waypoint",
+        label: w.name ?? "Waypoint",
+        poiType: SYM_TO_POI[(w.sym ?? "").toLowerCase()] ?? "other",
+        lat: w.lat, lng: w.lng, ele: w.ele,
+      })),
+      ...parsed.gaps.map((g): Candidate => ({
+        include: false, origin: "stop",
+        label: g.durationMin >= 360 ? `Overnight stop (${Math.round(g.durationMin / 60)}h)` : `Rest stop (${g.durationMin} min)`,
+        poiType: g.durationMin >= 360 ? "camp" : "other",
+        lat: g.lat, lng: g.lng, ele: null,
+      })),
+    ]);
   }
 
   function take(f: File | undefined) {
@@ -93,11 +121,35 @@ export default function Upload({
       if (!error && data) {
         id = data.id as string;
         if (gpxTrack) {
-          await addTrack(id, user.id, {
+          const ok = await addTrack(id, user.id, {
             label: gpxTrack.name ?? "Track",
-            points: gpxTrack.points.map((p) => [p.lat, p.lng, p.ele] as [number, number, number | null]),
+            segments: gpxTrack.segments.map((seg) => seg.map((p) => [p.lat, p.lng, p.ele] as [number, number, number | null])),
             distanceM: gpxTrack.distanceM, gainM: gpxTrack.gainM,
           });
+          if (!ok) setTrackErr("Post published, but the track failed to save — re-attach it later.");
+          // Confirmed candidates → POI annotations, projected onto the sphere.
+          // Needs capture GPS + heading; camera elevation ≈ nearest track point.
+          if (geo.lat != null && geo.lng != null && geo.heading != null) {
+            const flat = gpxTrack.segments.flat();
+            let camEle: number | null = null, best = Infinity;
+            for (const pnt of flat) {
+              if (pnt.ele == null) continue;
+              const d = distanceM(geo.lat, geo.lng, pnt.lat, pnt.lng);
+              if (d < best) { best = d; camEle = pnt.ele; }
+            }
+            for (const c of candidates.filter((c) => c.include)) {
+              const dist = distanceM(geo.lat, geo.lng, c.lat, c.lng);
+              if (dist < 15) continue;
+              const bearing = bearingBetween(geo.lat, geo.lng, c.lat, c.lng);
+              const yaw = ((((bearing - geo.heading) * Math.PI) / 180) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+              const pitch = c.ele != null && camEle != null ? Math.atan2(c.ele - camEle - 1.6, dist) : 0;
+              await addAnnotation(id, user.id, {
+                yaw, pitch, label: c.label, kind: "poi", poiType: c.poiType,
+                worldBearing: bearing,
+                path: undefined,
+              });
+            }
+          }
         }
       }
     }
@@ -210,13 +262,40 @@ export default function Upload({
           <input ref={gpxInputRef} type="file" accept=".gpx,application/gpx+xml" hidden onChange={(e) => takeGpx(e.target.files?.[0])} />
           {gpxTrack ? (
             <div className="gpx-chip">
-              🥾 <b>{gpxTrack.name ?? "Track"}</b> · {(gpxTrack.distanceM / 1000).toFixed(1)}km · +{Math.round(gpxTrack.gainM)}m · {gpxTrack.points.length} pts
-              <button className="btn-sec" style={{ marginLeft: "auto" }} onClick={() => setGpxTrack(null)}>Remove</button>
+              🥾 <b>{gpxTrack.name ?? "Track"}</b> · {(gpxTrack.distanceM / 1000).toFixed(1)}km · +{Math.round(gpxTrack.gainM)}m
+              {gpxTrack.segments.length > 1 ? ` · ${gpxTrack.segments.length} segments` : ""}
+              <button className="btn-sec" style={{ marginLeft: "auto" }} onClick={() => { setGpxTrack(null); setCandidates([]); }}>Remove</button>
             </div>
           ) : (
             <button className="btn-sec" onClick={() => gpxInputRef.current?.click()}>Attach GPX</button>
           )}
           {trackErr && <p style={{ color: "#ffb454", fontSize: 12, marginTop: 6 }}>⚠ {trackErr}</p>}
+
+          {/* Mined candidates — waypoints + timed stops the owner can confirm */}
+          {candidates.length > 0 && (
+            <div className="gpx-cands">
+              <p className="gpx-cands-hint">
+                Found in the track — tick to place as markers{geo.lat == null || geo.heading == null ? " (needs capture GPS + heading to place)" : ""}:
+              </p>
+              {candidates.map((c, i) => (
+                <label className="gpx-cand" key={i}>
+                  <input type="checkbox" checked={c.include}
+                    disabled={geo.lat == null || geo.heading == null}
+                    onChange={(e) => setCandidates((cs) => cs.map((x, j) => (j === i ? { ...x, include: e.target.checked } : x)))} />
+                  <span className="gpx-cand-label">{c.origin === "waypoint" ? "📍" : "⏸"} {c.label}</span>
+                  <select value={c.poiType}
+                    onChange={(e) => setCandidates((cs) => cs.map((x, j) => (j === i ? { ...x, poiType: e.target.value as PoiType } : x)))}>
+                    <option value="camp">⛺ camp</option>
+                    <option value="water">💧 water</option>
+                    <option value="summit">▲ summit</option>
+                    <option value="trailhead">🥾 trailhead</option>
+                    <option value="cairn">🪨 cairn</option>
+                    <option value="other">👀 other</option>
+                  </select>
+                </label>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="sheet-foot">

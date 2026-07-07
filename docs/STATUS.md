@@ -107,6 +107,25 @@ CLAUDE.md protocols 9–10. Migration `20260706180000_annotation_layer.sql` **ap
   **schema inspiration + dev-time research only** — not licensed for product use; OpenBeta stays
   the product integration.
 
+## Cross-review fixes + GPX candidates (2026-07-06, from shotgundetour's review)
+shotgundetour's Fable instance reviewed the tracks slice — 6 findings, all addressed:
+1. ✅ **Multi-`<trkseg>` preserved** — segments never bridge pauses; distance/gain exclude gaps.
+2. ✅ **`<rtept>` is a true fallback** — never merged with track points.
+3. ✅ **Size/point caps + iterative DP** — 25MB / 20k-pt caps, explicit-stack simplifier (60k-pt
+   monotonic climb test passes).
+4. ⏳ **Yaw sign** — still the standing eyes-on check (one flip point, shared by all layers).
+5. ✅ **Heading required for projection** — no more silent `?? 0`; 'route' button hidden without
+   compass heading (upload nudge covers acquisition).
+6. ✅ **Tracks are owner-only** — decided possessive, not collaborative: migration
+   `20260707000000_tracks_owner_only.sql` (**NOT pushed — needs approval**) requires post
+   ownership on insert. Smaller notes fixed too: `<trk><name>` preferred over metadata name
+   ("Garmin Connect"), failed track insert surfaces an error.
+**Plus their spec'd two-source candidates pipeline**: `<wpt>` waypoints (name+sym → poi type) and
+timed segment gaps ≥20min ("Rest stop (46 min)" / "Overnight stop (9h)") surface in Upload as
+tick-to-confirm candidates — never auto-published — inserted as projected POI annotations when
+capture GPS + heading exist. Parser: 13/13 tests. Shared-lib verdict recorded on their side:
+parser + future consensus-line lib are the reusable pieces; schemas stay separate.
+
 ## Tracks pass (2026-07-06, auto mode)
 User-owned GPX overlays — VISION's "build the machine, don't borrow the data" answer to
 Peakbagger/Strava. **Migration `20260706210000_tracks.sql` written but NOT pushed — needs

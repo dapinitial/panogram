@@ -52,10 +52,11 @@ export default function MapViewImpl({ posts, onOpen }: { posts: Post[]; onOpen: 
   // so drawing is idempotent and re-fired on every style.load.
   function drawTracks(map: maplibregl.Map) {
     for (const t of tracksRef.current) {
-      if (t.points.length < 2 || map.getSource(`track-${t.id}`)) continue;
+      const segs = t.segments.filter((s) => s.length > 1);
+      if (!segs.length || map.getSource(`track-${t.id}`)) continue;
       map.addSource(`track-${t.id}`, {
         type: "geojson",
-        data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: t.points.map(([lat, lng]) => [lng, lat]) } },
+        data: { type: "Feature", properties: {}, geometry: { type: "MultiLineString", coordinates: segs.map((seg) => seg.map(([lat, lng]) => [lng, lat])) } },
       });
       map.addLayer({
         id: `track-${t.id}`, type: "line", source: `track-${t.id}`,
