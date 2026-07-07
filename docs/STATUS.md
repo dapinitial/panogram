@@ -107,6 +107,21 @@ CLAUDE.md protocols 9–10. Migration `20260706180000_annotation_layer.sql` **ap
   **schema inspiration + dev-time research only** — not licensed for product use; OpenBeta stays
   the product integration.
 
+## Tracks pass (2026-07-06, auto mode)
+User-owned GPX overlays — VISION's "build the machine, don't borrow the data" answer to
+Peakbagger/Strava. **Migration `20260706210000_tracks.sql` written but NOT pushed — needs
+explicit `supabase db push` approval** (code no-ops gracefully until then).
+- **lib/gpx.ts** — dependency-free parser (trkpt/rtept, CRLF, self-closing), 3D Douglas-Peucker
+  to ≤200 pts with a 32-pt density floor, distance + jitter-filtered gain. 14/14 tests.
+- **Upload** — optional "Attach GPX" with a stats chip; track persists with the post.
+- **Track-in-pano** — 'route' rail button projects the recorded line into the sphere (bearing −
+  heading → yaw; elevation delta / distance → pitch; camera ele ≈ nearest track point; seam-split
+  segments). Geometry verified. *The feature nobody else has.*
+- **Atlas** — tracks render as holo lines, re-added after basemap swaps.
+- Peakbagger verdict (same shelf as mp-tools): scraper CLI vs a Cloudflare-challenged hobby site —
+  personal trip research only, never runtime. OSM public GPS traces = the open path to communal
+  "multiple successful routes" later.
+
 ## Second auto-mode pass (2026-07-06, later)
 - **Atlas basemaps** — Void (Carto dark) / **Topo (USGS National Map)** / Terrain (OpenTopoMap)
   switcher, persisted; the free substrate Gaia-class apps license.

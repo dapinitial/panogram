@@ -3,8 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import type { Post } from "@/lib/types";
+import type { Post, Track } from "@/lib/types";
 import { track } from "@/lib/telemetry";
+import { loadTracksForPosts } from "@/lib/db";
 
 // The Atlas: every geo-tagged capture as a pin on a world map — the "world,
 // not feed" surface the spatial layer builds toward. Three free basemaps, no
@@ -45,11 +46,29 @@ export default function MapViewImpl({ posts, onOpen }: { posts: Post[]; onOpen: 
 
   const [basemap, setBasemap] = useState<BasemapKey>(() =>
     (typeof window !== "undefined" && (localStorage.getItem("pg_basemap") as BasemapKey)) || "void");
+  const tracksRef = useRef<Track[]>([]);
+
+  // Recorded tracks as map lines. Layers die on setStyle (unlike DOM markers),
+  // so drawing is idempotent and re-fired on every style.load.
+  function drawTracks(map: maplibregl.Map) {
+    for (const t of tracksRef.current) {
+      if (t.points.length < 2 || map.getSource(`track-${t.id}`)) continue;
+      map.addSource(`track-${t.id}`, {
+        type: "geojson",
+        data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: t.points.map(([lat, lng]) => [lng, lat]) } },
+      });
+      map.addLayer({
+        id: `track-${t.id}`, type: "line", source: `track-${t.id}`,
+        paint: { "line-color": "#8fe9ff", "line-width": 2.5, "line-opacity": 0.85 },
+        layout: { "line-cap": "round", "line-join": "round" },
+      });
+    }
+  }
 
   function pickBasemap(k: BasemapKey) {
     setBasemap(k);
     localStorage.setItem("pg_basemap", k);
-    mapRef.current?.setStyle(BASEMAPS[k]); // markers are DOM overlays — they survive
+    mapRef.current?.setStyle(BASEMAPS[k]); // markers survive (DOM); track layers re-add on style.load
     track("filter_change", { props: { basemap: k } });
   }
 
@@ -81,6 +100,12 @@ export default function MapViewImpl({ posts, onOpen }: { posts: Post[]; onOpen: 
       bounds.extend([p.captureLng!, p.captureLat!]);
     }
     if (geoPosts.length) map.fitBounds(bounds, { padding: 80, maxZoom: 11, duration: 0 });
+
+    map.on("style.load", () => drawTracks(map));
+    loadTracksForPosts(geoPosts.map((p) => p.id)).then((ts) => {
+      tracksRef.current = ts;
+      if (map.isStyleLoaded()) drawTracks(map);
+    });
 
     return () => { mapRef.current = null; map.remove(); };
     // Re-mounting per posts change is fine at prototype scale.
