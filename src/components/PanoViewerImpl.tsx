@@ -80,10 +80,34 @@ function peakMarkersOf(peaks: PeakMarker[]) {
   }));
 }
 
+// A recorded track projected into the sphere — segments pre-split at the yaw
+// seam by the caller; rendered as glowing holo polylines.
+export interface TrackOverlay { label: string; segments: [number, number][][] }
+
+function trackMarkersOf(overlays: TrackOverlay[]) {
+  return overlays.flatMap((t, ti) =>
+    t.segments
+      .filter((seg) => seg.length > 1)
+      .map((seg, si) => ({
+        id: `track-${ti}-${si}`,
+        polyline: seg,
+        tooltip: `🥾 ${t.label}`,
+        data: { kind: "track" },
+        svgStyle: {
+          stroke: "rgba(143,233,255,0.9)",
+          strokeWidth: "4px",
+          strokeLinecap: "round",
+          strokeLinejoin: "round",
+          fill: "none",
+        },
+      })),
+  );
+}
+
 export type SelectedMarker = { id?: string; label?: string; kind?: string; targetUrl?: string; targetPostId?: string; campaignId?: string };
 
 export default function PanoViewerImpl({
-  post, annotations, addMode, onPlace, onSelect, sunPath, peaks,
+  post, annotations, addMode, onPlace, onSelect, sunPath, peaks, trackOverlays,
 }: {
   post: Post;
   annotations: Annotation[];
@@ -92,6 +116,7 @@ export default function PanoViewerImpl({
   onSelect: (m: SelectedMarker) => void;
   sunPath?: SunPath | null;
   peaks?: PeakMarker[] | null;
+  trackOverlays?: TrackOverlay[] | null;
 }) {
   const onSelectRef = useRef(onSelect);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -101,6 +126,7 @@ export default function PanoViewerImpl({
   const onPlaceRef = useRef(onPlace);
   const sunRef = useRef(sunPath);
   const peaksRef = useRef(peaks);
+  const tracksRef = useRef(trackOverlays);
   // Event handlers and onReady read these refs strictly after effects run.
   useEffect(() => {
     onSelectRef.current = onSelect;
@@ -108,6 +134,7 @@ export default function PanoViewerImpl({
     onPlaceRef.current = onPlace;
     sunRef.current = sunPath;
     peaksRef.current = peaks;
+    tracksRef.current = trackOverlays;
   });
 
   // Push marker changes imperatively so the panorama image never reloads.
@@ -116,8 +143,9 @@ export default function PanoViewerImpl({
       ...annotations.map(markerOf),
       ...(sunPath ? sunMarkersOf(sunPath) : []),
       ...(peaks ? peakMarkersOf(peaks) : []),
+      ...(trackOverlays ? trackMarkersOf(trackOverlays) : []),
     ]);
-  }, [annotations, sunPath, peaks]);
+  }, [annotations, sunPath, peaks, trackOverlays]);
 
   const onReady = useCallback(
     (instance: unknown) => {
@@ -129,10 +157,11 @@ export default function PanoViewerImpl({
         ...annotations.map(markerOf),
         ...(sunRef.current ? sunMarkersOf(sunRef.current) : []),
         ...(peaksRef.current ? peakMarkersOf(peaksRef.current) : []),
+        ...(tracksRef.current ? trackMarkersOf(tracksRef.current) : []),
       ]);
 
       mp?.addEventListener("select-marker", (e: { marker: { data?: SelectedMarker } }) => {
-        if (e.marker?.data?.kind === "sun" || e.marker?.data?.kind === "peak") return; // ambient layers, not annotations
+        if (e.marker?.data?.kind === "sun" || e.marker?.data?.kind === "peak" || e.marker?.data?.kind === "track") return; // ambient layers, not annotations
         track("annotation_tap", { postId: post.id, props: { label: e.marker?.data?.label } });
         if (e.marker?.data) onSelectRef.current(e.marker.data);
       });

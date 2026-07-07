@@ -1,16 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Annotation, Comment, Post, Sighting } from "@/lib/types";
+import type { Annotation, Comment, Post, Sighting, Track } from "@/lib/types";
 import { MEDIA, POI } from "@/lib/types";
 import PanoViewer from "./PanoViewer";
 import ReportSheet from "./ReportSheet";
 import { track } from "@/lib/telemetry";
-import { addAnnotation, addComment, addFind, addSighting, loadAnnotations, loadComments, loadSightings, type ReportTarget } from "@/lib/db";
-import type { SelectedMarker } from "./PanoViewerImpl";
+import { addAnnotation, addComment, addFind, addSighting, loadAnnotations, loadComments, loadSightings, loadTracks, type ReportTarget } from "@/lib/db";
+import type { PeakMarker, SelectedMarker, TrackOverlay } from "./PanoViewerImpl";
 import { sunPathForPano } from "@/lib/sun";
 import { bearingBetween, distanceM, worldBearing } from "@/lib/geo";
-import type { PeakMarker } from "./PanoViewerImpl";
 
 type ReportSubject = { type: ReportTarget; id: string; postId?: string | null; label: string };
 
@@ -72,6 +71,39 @@ export default function Immersive({
   const [peaks, setPeaks] = useState<PeakMarker[] | null>(null);
   const [peaksOn, setPeaksOn] = useState(false);
   const [peaksBusy, setPeaksBusy] = useState(false);
+  // Recorded tracks, projected into the sphere ("the line we took").
+  const [tracks, setTracks] = useState<Track[]>([]);
+  const [tracksOn, setTracksOn] = useState(false);
+
+  // Track point (lat,lng,ele) → sphere (yaw,pitch): bearing minus heading for
+  // yaw; elevation delta over ground distance for pitch. Camera elevation ≈
+  // the nearest track point's elevation (the recorder stood roughly there).
+  // Segments split where consecutive yaw jumps > π so the polyline never
+  // shortcuts across the pano seam.
+  const trackOverlays = useMemo<TrackOverlay[]>(() => {
+    if (!tracks.length || post.captureLat == null || post.captureLng == null) return [];
+    const heading = post.captureHeading ?? 0;
+    const TWO_PI = 2 * Math.PI;
+    return tracks.map((t) => {
+      let camEle: number | null = null, best = Infinity;
+      for (const [lat, lng, ele] of t.points) {
+        const d = distanceM(post.captureLat!, post.captureLng!, lat, lng);
+        if (d < best && ele != null) { best = d; camEle = ele; }
+      }
+      const segments: [number, number][][] = [[]];
+      let prevYaw: number | null = null;
+      for (const [lat, lng, ele] of t.points) {
+        const dist = distanceM(post.captureLat!, post.captureLng!, lat, lng);
+        if (dist < 15) { prevYaw = null; segments.push([]); continue; } // under the camera — unstable
+        const yaw = ((((bearingBetween(post.captureLat!, post.captureLng!, lat, lng) - heading) * Math.PI) / 180) % TWO_PI + TWO_PI) % TWO_PI;
+        const pitch = ele != null && camEle != null ? Math.atan2(ele - camEle - 1.6, dist) : 0;
+        if (prevYaw != null && Math.abs(yaw - prevYaw) > Math.PI) segments.push([]); // seam crossing
+        segments[segments.length - 1].push([yaw, pitch]);
+        prevYaw = yaw;
+      }
+      return { label: t.label || "Track", segments };
+    });
+  }, [tracks, post.captureLat, post.captureLng, post.captureHeading]);
   // Sighting sheet — confirm/dispute a tapped annotation from the field.
   const [sight, setSight] = useState<{ id: string; label: string; kind: string } | null>(null);
   const [sightList, setSightList] = useState<Sighting[]>([]);
@@ -245,6 +277,7 @@ export default function Immersive({
     if (post.authorId) {
       loadComments(post.id, blocked).then(setComments);
       loadAnnotations(post.id).then((a) => a.length && setAnnotations(a));
+      loadTracks(post.id).then(setTracks); // always set — clears stale tracks on teleport
     }
     // Avalanche forecast for the capture spot (server-cached; chip renders
     // only for an active in-season rating).
@@ -338,7 +371,7 @@ export default function Immersive({
   return (
     <div className="imm">
       <div className="imm-stage">
-        <PanoViewer post={post} annotations={viewerAnnotations} addMode={addMode || !!draft} onPlace={onPlace} onSelect={onSelect} sunPath={sunOn ? sunPath : null} peaks={peaksOn ? peaks : null} />
+        <PanoViewer post={post} annotations={viewerAnnotations} addMode={addMode || !!draft} onPlace={onPlace} onSelect={onSelect} sunPath={sunOn ? sunPath : null} peaks={peaksOn ? peaks : null} trackOverlays={tracksOn ? trackOverlays : null} />
 
         <svg className="gaze" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.5">
           <circle cx="24" cy="24" r="13" opacity="0.5" /><circle cx="24" cy="24" r="2.5" fill="currentColor" stroke="none" />
@@ -601,6 +634,14 @@ export default function Immersive({
               title="Name the peaks on the horizon (OpenStreetMap)">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m3 19 6-10 4 6 3-4 5 8z" /><path d="M8.5 10.5 10 8" /></svg>
               <span>peaks</span>
+            </button>
+          )}
+          {trackOverlays.length > 0 && (
+            <button className="rail-btn" data-on={tracksOn}
+              onClick={() => { if (!tracksOn) track("track_view", { postId: post.id }); setTracksOn((v) => !v); }}
+              title="The recorded route, drawn onto the scene">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 20c2-4 1-7 4-9s6 0 8-4c1-2 1-4 1-4" /><circle cx="4" cy="20" r="1.6" fill="currentColor" stroke="none" /><circle cx="17" cy="3" r="1.6" fill="currentColor" stroke="none" /><path d="M8 16.5 6.5 15M13 9l-1.5-1.5" /></svg>
+              <span>route</span>
             </button>
           )}
         </div>

@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import type { Annotation, Post } from "@/lib/types";
-import type { PeakMarker, SelectedMarker } from "./PanoViewerImpl";
+import type { PeakMarker, SelectedMarker, TrackOverlay } from "./PanoViewerImpl";
 import type { SunPath } from "@/lib/sun";
 
 // ssr:false guarantees the WebGL/three.js bundle (and anything touching `window`)
@@ -24,6 +24,7 @@ export default function PanoViewer(props: {
   onSelect: (m: SelectedMarker) => void;
   sunPath?: SunPath | null;
   peaks?: PeakMarker[] | null;
+  trackOverlays?: TrackOverlay[] | null;
 }) {
   return <Impl {...props} />;
 }
