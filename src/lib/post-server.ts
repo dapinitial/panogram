@@ -19,7 +19,7 @@ export async function getPostById(id: string): Promise<(Post & { description: st
   const sb = await supabaseServer();
   const { data } = await sb
     .from("posts")
-    .select("id,author_id,type,title,location,description,storage_path,capture_lat,capture_lng,capture_heading,profiles(handle,avatar_grad)")
+    .select("id,author_id,type,title,location,description,storage_path,capture_lat,capture_lng,capture_heading,profiles!posts_author_id_fkey(handle,avatar_grad)")
     .eq("id", id)
     .maybeSingle();
   if (!data) return null;

@@ -44,7 +44,8 @@ export async function loadFeed(blocked?: Set<string>): Promise<Post[]> {
   const sb = browserSupabase();
   if (!sb) return [];
   const [posts, likes, comments, annos] = await Promise.all([
-    sb.from("posts").select("id,author_id,type,title,location,storage_path,capture_lat,capture_lng,capture_heading,profiles(handle,avatar_grad)").order("created_at", { ascending: false }),
+    // profiles must be disambiguated: likes/saves also relate posts↔profiles (PGRST201)
+    sb.from("posts").select("id,author_id,type,title,location,storage_path,capture_lat,capture_lng,capture_heading,profiles!posts_author_id_fkey(handle,avatar_grad)").order("created_at", { ascending: false }),
     sb.from("likes").select("post_id"),
     sb.from("comments").select("post_id"),
     sb.from("annotations").select("post_id"),
