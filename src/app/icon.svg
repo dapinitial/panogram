@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Vector favicon: the Panogram mark (rounded frame · sun · ridgeline) on the
+       void tile, in the brand identity gradient (orange→pink→purple — see
+       globals.css :root). Next.js serves this via the icon.svg file convention.
+       Raster fallbacks (favicon.ico, apple-icon.png) are generated from this
+       file by scripts/generate-favicons.mjs — edit here, then re-run that. -->
+  <defs>
+    <linearGradient id="pg" gradientUnits="userSpaceOnUse" x1="5" y1="59" x2="59" y2="5">
+      <stop offset="0" stop-color="#ff6b35"/>
+      <stop offset="0.5" stop-color="#e040a0"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+    <clipPath id="tile">
+      <rect x="5" y="5" width="54" height="54" rx="13"/>
+    </clipPath>
+  </defs>
+  <rect x="5" y="5" width="54" height="54" rx="13" fill="#06060c"/>
+  <g clip-path="url(#tile)">
+    <path d="M3 51 L24 30 L34 40 L45 28 L61 44 L61 61 L3 61 Z" fill="url(#pg)"/>
+    <circle cx="21.5" cy="20" r="5.5" fill="url(#pg)"/>
+  </g>
+  <rect x="5" y="5" width="54" height="54" rx="13" fill="none" stroke="url(#pg)" stroke-width="4.5"/>
+</svg>
