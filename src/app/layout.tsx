@@ -32,7 +32,9 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={`${display.variable} ${body.variable}`} suppressHydrationWarning>
-      <body>
+      {/* Browser extensions (password managers, Demoway, Grammarly…) inject
+          attributes on <body> before React hydrates; suppress that one-level warning. */}
+      <body suppressHydrationWarning>
         <script dangerouslySetInnerHTML={{ __html: themeInit }} />
         {children}
       </body>
