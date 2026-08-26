@@ -4,6 +4,14 @@ import { useState } from "react";
 import Link from "next/link";
 import { browserSupabase } from "@/lib/supabase-browser";
 
+// A failed fetch surfaces browser-specific text — "Load failed" (Safari/WebKit),
+// "Failed to fetch" (Chrome), "NetworkError" (Firefox) — none of it meaningful to
+// a user. Collapse them into one honest message that points at the real cause.
+const NETWORK_MSG = "Can't reach the sign-in server. Check your connection and try again.";
+function isNetworkError(message: string): boolean {
+  return /load failed|failed to fetch|networkerror|network request failed/i.test(message);
+}
+
 export default function AuthSheet({ onClose }: { onClose: () => void }) {
   const [email, setEmail] = useState("");
   const [state, setState] = useState<"idle" | "sending" | "sent" | "error">("idle");
@@ -18,15 +26,21 @@ export default function AuthSheet({ onClose }: { onClose: () => void }) {
     }
     if (!email.trim()) return;
     setState("sending");
-    const { error } = await sb.auth.signInWithOtp({
-      email: email.trim(),
-      options: { emailRedirectTo: `${location.origin}/auth/callback` },
-    });
-    if (error) {
+    try {
+      const { error } = await sb.auth.signInWithOtp({
+        email: email.trim(),
+        options: { emailRedirectTo: `${location.origin}/auth/callback` },
+      });
+      if (error) {
+        setState("error");
+        setMsg(isNetworkError(error.message) ? NETWORK_MSG : error.message);
+      } else {
+        setState("sent");
+      }
+    } catch (e) {
+      // supabase-js can throw (not just return {error}) when fetch fails outright.
       setState("error");
-      setMsg(error.message);
-    } else {
-      setState("sent");
+      setMsg(isNetworkError(e instanceof Error ? e.message : "") ? NETWORK_MSG : "Something went wrong. Try again.");
     }
   }
 
