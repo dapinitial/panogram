@@ -9,7 +9,7 @@ import { loadFeed, loadMyEngagement, loadNotifications, loadMyBlocks, loadMyBloc
 import Nav, { type Tab } from "@/components/Nav";
 import Feed from "@/components/Feed";
 import MapView from "@/components/MapView";
-import Immersive from "@/components/Immersive";
+import Immersive, { readPendingAnnotation } from "@/components/Immersive";
 import Upload from "@/components/Upload";
 import AuthSheet from "@/components/AuthSheet";
 import Notifications from "@/components/Notifications";
@@ -52,6 +52,16 @@ export default function Home() {
 
   useEffect(() => { track("view", { props: { tab } }); }, [tab]);
   useEffect(() => { setSeen(localStorage.getItem("pg_notif_seen") ?? ""); }, []);
+
+  // A magic-link sign-in that interrupted a Save lands back here on `/`. If a
+  // draft is waiting for a loaded post, reopen that pano so Immersive can
+  // restore it (Immersive clears the stash once restored).
+  useEffect(() => {
+    if (!user) return;
+    const p = readPendingAnnotation();
+    if (!p || viewingId === p.postId) return;
+    if (posts.some((x) => x.id === p.postId)) setViewingId(p.postId);
+  }, [user, posts, viewingId]);
 
   function openBell() {
     setNotifOpen(true);

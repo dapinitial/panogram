@@ -20,6 +20,35 @@ type AdCard = { id?: string; label: string; url?: string; kind: string; campaign
 type PortalCard = { id?: string; label: string; targetPostId?: string; campaignId?: string };
 const AD_KINDS = new Set(["sponsored", "product", "link"]);
 
+// A draft the user built while signed out, stashed so a magic-link round-trip
+// (leave to email → back) doesn't lose their work. Reopened + restored on return.
+type PendingAnnotation =
+  | { postId: string; type: "route"; path: [number, number][]; label: string; ts: number }
+  | { postId: string; type: "pin"; yaw: number; pitch: number; label: string; kind: Annotation["kind"]; pinUrl?: string; ts: number };
+export const PENDING_KEY = "pg_pending_annotation";
+const PENDING_TTL_MS = 60 * 60 * 1000; // ignore a draft older than an hour
+
+/** Read a still-valid pending draft, or null. Clears expired/garbage keys. */
+export function readPendingAnnotation(): PendingAnnotation | null {
+  let raw: string | null;
+  try { raw = localStorage.getItem(PENDING_KEY); } catch { return null; }
+  if (!raw) return null;
+  try {
+    const p = JSON.parse(raw) as PendingAnnotation;
+    if (!p?.postId || !p.ts || Date.now() - p.ts > PENDING_TTL_MS) throw new Error("stale");
+    return p;
+  } catch {
+    try { localStorage.removeItem(PENDING_KEY); } catch { /* private mode */ }
+    return null;
+  }
+}
+// Distributive so each union member keeps its own fields (a plain Omit over a
+// union collapses to the shared keys, dropping `path`/`yaw`/…).
+type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never;
+const stashPending = (p: DistributiveOmit<PendingAnnotation, "ts">) => {
+  try { localStorage.setItem(PENDING_KEY, JSON.stringify({ ...p, ts: Date.now() })); } catch { /* private mode */ }
+};
+
 export default function Immersive({
   post, user, liked, isFollowing, blocked, onClose, onLike, onFollow, onBlock, onTeleport, onAuthRequired,
 }: {
@@ -188,7 +217,12 @@ export default function Immersive({
     try {
       const res = await fetch(`/api/peaks?lat=${post.captureLat}&lng=${post.captureLng}`);
       const data = await res.json();
-      if (!res.ok) return;
+      if (!res.ok || !data.peaks?.length) {
+        setPeaksOn(false); // don't leave the button lit with nothing to show
+        setFoundMsg(res.ok ? "No named peaks are mapped near this spot." : "Couldn't reach the peak database — try again in a moment.");
+        setTimeout(() => setFoundMsg(""), 3000);
+        return;
+      }
       const heading = post.captureHeading ?? 0;
       const TWO_PI = 2 * Math.PI;
       const list: PeakMarker[] = (data.peaks as { name: string; ele: number | null; lat: number; lng: number }[])
@@ -202,7 +236,9 @@ export default function Immersive({
         .filter((p): p is PeakMarker => !!p);
       setPeaks(list);
     } catch {
-      /* the layer just stays empty */
+      setPeaksOn(false);
+      setFoundMsg("Couldn't reach the peak database — try again in a moment.");
+      setTimeout(() => setFoundMsg(""), 3000);
     } finally {
       setPeaksBusy(false);
     }
@@ -302,6 +338,26 @@ export default function Immersive({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [post.id, post.authorId, post.type, blocked]);
 
+  // Signed in with a draft waiting (from a save-before-auth on this pano)? Bring
+  // the line/tag back into its composer so one click finishes what they started.
+  useEffect(() => {
+    if (!user) return;
+    const p = readPendingAnnotation();
+    if (!p || p.postId !== post.id) return;
+    try { localStorage.removeItem(PENDING_KEY); } catch { /* private mode */ }
+    if (p.type === "route" && p.path.length >= 2) {
+      setAddMode(false); setPending(null);
+      setDraft(p.path); setLabel(p.label); setNaming(true);
+    } else if (p.type === "pin") {
+      setDraft(null);
+      setPending({ yaw: p.yaw, pitch: p.pitch }); setLabel(p.label);
+      setKind(p.kind); setPinUrl(p.pinUrl ?? "");
+    }
+    setFoundMsg("Signed in — your draft is back. Save it below.");
+    setTimeout(() => setFoundMsg(""), 3600);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, post.id]);
+
   // Esc closes the pin composer first, otherwise the viewer.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -322,21 +378,24 @@ export default function Immersive({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pending, menuOpen, report, ad, portal, draft, naming, sight, aiOpen, onClose]);
 
+  // Drawing & tagging are open to everyone — you build a local draft first; the
+  // sign-in wall only comes up at Save (login-on-save). No auth gate here.
   function onPlace(yaw: number, pitch: number) {
-    if (!user) { setAddMode(false); setDraft(null); return onAuthRequired(); }
     if (draft) { setDraft([...draft, [yaw, pitch]]); return; } // drawing: extend the line
     setPending({ yaw, pitch });
     setLabel(""); setPinUrl("");
   }
 
   function toggleDraw() {
-    if (!user) return onAuthRequired();
     setAddMode(false); setPending(null); setNaming(false); setLabel("");
     setDraft((d) => (d ? null : []));
   }
 
   async function saveRoute() {
-    if (!user || !draft || draft.length < 2 || !label.trim() || !post.authorId) return;
+    if (!draft || draft.length < 2 || !label.trim() || !post.authorId) return;
+    // Not signed in? Keep the line, prompt sign-in; the draft survives the
+    // magic-link round-trip and is restored on return (see the effect below).
+    if (!user) { stashPending({ postId: post.id, type: "route", path: draft, label: label.trim() }); return onAuthRequired(); }
     const a: Annotation = {
       yaw: draft[0][0], pitch: draft[0][1], label: label.trim(), kind: "route", path: draft,
       worldBearing: post.captureHeading != null ? worldBearing(post.captureHeading, draft[0][0]) : undefined,
@@ -357,7 +416,11 @@ export default function Immersive({
   const kindNeedsUrl = kind === "sponsored" || kind === "product" || kind === "link";
 
   async function savePin() {
-    if (!user || !pending || !label.trim() || !post.authorId) return;
+    if (!pending || !label.trim() || !post.authorId) return;
+    if (!user) {
+      stashPending({ postId: post.id, type: "pin", yaw: pending.yaw, pitch: pending.pitch, label: label.trim(), kind, pinUrl: kindNeedsUrl ? pinUrl.trim() : undefined });
+      return onAuthRequired();
+    }
     const a: Annotation = {
       yaw: pending.yaw, pitch: pending.pitch, label: label.trim(), kind,
       targetUrl: kindNeedsUrl && pinUrl.trim() ? pinUrl.trim() : undefined,
@@ -624,7 +687,7 @@ export default function Immersive({
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
             <span>{comments.length}</span>
           </button>
-          <button className="rail-btn" data-on={addMode} onClick={() => { if (!user) return onAuthRequired(); setDraft(null); setAddMode((v) => !v); }} title="Add spatial tag">
+          <button className="rail-btn" data-on={addMode} onClick={() => { setDraft(null); setAddMode((v) => !v); }} title="Add spatial tag">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="11" r="8" /><path d="M12 8v6M9 11h6" /></svg>
             <span>tag</span>
           </button>
