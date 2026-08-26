@@ -1,0 +1,40 @@
+# Keeps the free-tier Supabase project from pausing. Supabase pauses a free
+# project after ~7 days of no activity (and eventually deletes it) — which once
+# took the whole backend offline (auth "Load failed", NXDOMAIN host). A tiny REST
+# read every 3 days counts as database activity and resets that clock.
+#
+# URL + key come from repo secrets (SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY), never
+# committed — matches the project's "no keys in committed files" protocol even
+# though the publishable key is anon-safe by design.
+name: Keep Supabase warm
+
+on:
+  schedule:
+    # Every 3 days at 08:17 UTC. Odd minute avoids the top-of-hour scheduler rush
+    # (GitHub can delay cron under load); 3-day cadence leaves margin under the 7-day limit.
+    - cron: "17 8 */3 * *"
+  workflow_dispatch: {} # allow manual "Run workflow" from the Actions tab
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query Supabase REST (counts as DB activity)
+        env:
+          URL: ${{ secrets.SUPABASE_URL }}
+          KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          if [ -z "$URL" ] || [ -z "$KEY" ]; then
+            echo "::error::Missing SUPABASE_URL / SUPABASE_PUBLISHABLE_KEY repo secrets"
+            exit 1
+          fi
+          code=$(curl -s -o /dev/null -w '%{http_code}' \
+            "$URL/rest/v1/posts?select=id&limit=1" \
+            -H "apikey: $KEY" -H "Authorization: Bearer $KEY")
+          echo "Supabase REST ping → HTTP $code"
+          # 200 = healthy read. Anything else means the project is unhealthy/paused —
+          # fail so the run shows red and GitHub emails the repo owner.
+          if [ "$code" != "200" ]; then
+            echo "::error::Keep-warm ping failed (HTTP $code) — project may be paused or unhealthy"
+            exit 1
+          fi
