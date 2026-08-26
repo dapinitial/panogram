@@ -22,6 +22,8 @@ export type EventName =
   | "filter_change"
   | "upload_open"
   | "upload_publish"
+  | "plot_import"
+  | "plot_marker_add"
   | "report"
   | "block"
   | "ad_impression"

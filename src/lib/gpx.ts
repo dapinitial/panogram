@@ -37,7 +37,7 @@ export interface ParsedTrack {
   gaps: GpxGap[];
 }
 
-const MAX_POINTS = 200;
+export const MAX_POINTS = 200;
 const MIN_POINTS = 32;
 const GAIN_NOISE_M = 3;
 const HARD_POINT_CAP = 20000;  // pre-decimate beyond this before simplifying
@@ -49,6 +49,27 @@ const num = (s: string | undefined) => {
   const n = parseFloat(s ?? "");
   return Number.isFinite(n) ? n : null;
 };
+
+// Per-segment distance + ascent (gaps between segments never count). Elevation
+// gain uses a 3m threshold so GPS jitter doesn't inflate it. Shared by the GPX
+// and GeoJSON parsers so both report identical stats.
+export function trackStats(segments: TrackPoint[][]): { distanceM: number; gainM: number } {
+  let distanceM = 0, gainM = 0;
+  for (const pts of segments) {
+    let climb = 0;
+    for (let i = 1; i < pts.length; i++) {
+      distanceM += distanceM_(pts[i - 1], pts[i]);
+      const a = pts[i - 1].ele, b = pts[i].ele;
+      if (a != null && b != null) {
+        climb += b - a;
+        if (climb >= GAIN_NOISE_M) { gainM += climb; climb = 0; }
+        else if (climb < 0) climb = 0;
+      }
+    }
+  }
+  return { distanceM, gainM };
+}
+const distanceM_ = (a: TrackPoint, b: TrackPoint) => distanceM(a.lat, a.lng, b.lat, b.lng);
 
 function parsePoints(chunk: string, tag: "trkpt" | "rtept"): { pts: TrackPoint[]; times: (number | null)[] } {
   const pts: TrackPoint[] = [], times: (number | null)[] = [];
@@ -98,19 +119,7 @@ export function parseGpx(xml: string): ParsedTrack | null {
   }
 
   // Stats on the (possibly decimated) raw points, per segment — gaps excluded.
-  let dist = 0, gain = 0;
-  for (const { pts } of rawSegs) {
-    let climb = 0;
-    for (let i = 1; i < pts.length; i++) {
-      dist += distanceM(pts[i - 1].lat, pts[i - 1].lng, pts[i].lat, pts[i].lng);
-      const a = pts[i - 1].ele, b = pts[i].ele;
-      if (a != null && b != null) {
-        climb += b - a;
-        if (climb >= GAIN_NOISE_M) { gain += climb; climb = 0; }
-        else if (climb < 0) climb = 0;
-      }
-    }
-  }
+  const { distanceM: dist, gainM: gain } = trackStats(rawSegs.map((s) => s.pts));
 
   // Timed segment gaps → candidate stops (the recorder paused HERE for N min).
   const gaps: GpxGap[] = [];
@@ -157,7 +166,7 @@ export function parseGpx(xml: string): ParsedTrack | null {
 // needs shape in z), ITERATIVE (explicit stack), tolerance-searched to fit
 // maxPoints, with a density floor: over-collapsed straight trails fall back to
 // uniform sampling so projected pitch still follows the terrain.
-function simplify(pts: TrackPoint[], maxPoints: number): TrackPoint[] {
+export function simplify(pts: TrackPoint[], maxPoints: number): TrackPoint[] {
   if (pts.length <= maxPoints) return pts;
   const lat0 = pts[0].lat;
   const mx = 111320 * Math.cos((lat0 * Math.PI) / 180), my = 111320;

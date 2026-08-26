@@ -3,14 +3,22 @@
 import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import type { Post, Track } from "@/lib/types";
+import type { Post, Track, PoiType } from "@/lib/types";
+import { POI } from "@/lib/types";
 import { track } from "@/lib/telemetry";
 import { loadTracksForPosts } from "@/lib/db";
+import { parseGpx, type ParsedTrack } from "@/lib/gpx";
+import { parseGeoJSON } from "@/lib/geojson";
 
 // The Atlas: every geo-tagged capture as a pin on a world map — the "world,
 // not feed" surface the spatial layer builds toward. Three free basemaps, no
 // API keys: the void (Carto dark, matches the theme), USGS topo (the layer
 // Gaia-class apps are built on), and OpenTopoMap terrain.
+//
+// Plot (Slice 1): import a GPX/GeoJSON → simplified route outline + curated
+// markers (camp/water/POI), plus click-to-drop human markers. Local only —
+// nothing persists yet (Save/login is a later slice). Imported lines render
+// dashed-amber UNVERIFIED (safety rail, CLAUDE.md §9): observation, not endorsement.
 
 const OSM_ATTR = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 function rasterStyle(tiles: string[], attribution: string, tileSize = 256): maplibregl.StyleSpecification {
@@ -38,6 +46,26 @@ const BASEMAPS = {
 type BasemapKey = keyof typeof BASEMAPS;
 const BASEMAP_LABELS: Record<BasemapKey, string> = { void: "Void", topo: "Topo", terrain: "Terrain" };
 
+// Garmin/Gaia symbols → our POI vocabulary (same mapping the Upload flow uses).
+const SYM_TO_POI: Record<string, PoiType> = {
+  campground: "camp", camp: "camp", tent: "camp",
+  "drinking water": "water", water: "water", "water source": "water",
+  summit: "summit", "trail head": "trailhead", trailhead: "trailhead",
+};
+
+// A curated marker on a plotted route. Local only — no DB id yet.
+type PlotMarker = {
+  id: string;
+  lat: number; lng: number;
+  label: string;
+  poiType: PoiType;
+  include: boolean;
+  source: "import" | "human";
+};
+
+const uid = () => Math.random().toString(36).slice(2);
+const MAX_FILE_BYTES = 25 * 1024 * 1024;
+
 export default function MapViewImpl({ posts, onOpen }: { posts: Post[]; onOpen: (id: string) => void }) {
   const box = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -47,6 +75,21 @@ export default function MapViewImpl({ posts, onOpen }: { posts: Post[]; onOpen: 
   const [basemap, setBasemap] = useState<BasemapKey>(() =>
     (typeof window !== "undefined" && (localStorage.getItem("pg_basemap") as BasemapKey)) || "void");
   const tracksRef = useRef<Track[]>([]);
+
+  // ── Plot state (client-only draft) ──────────────────────────────────────────
+  const [plot, setPlot] = useState<ParsedTrack | null>(null);
+  const [markers, setMarkers] = useState<PlotMarker[]>([]);
+  const [plotErr, setPlotErr] = useState("");
+  const [addMode, setAddMode] = useState(false);
+  const plotInputRef = useRef<HTMLInputElement>(null);
+  // Mirrors so map handlers bound once at mount read the latest values.
+  const plotRef = useRef<ParsedTrack | null>(null);
+  const markersRef = useRef<PlotMarker[]>([]);
+  const addModeRef = useRef(false);
+  const markerObjsRef = useRef<maplibregl.Marker[]>([]); // plot markers only (not capture pins)
+  useEffect(() => { plotRef.current = plot; }, [plot]);
+  useEffect(() => { markersRef.current = markers; }, [markers]);
+  useEffect(() => { addModeRef.current = addMode; }, [addMode]);
 
   // Recorded tracks as map lines. Layers die on setStyle (unlike DOM markers),
   // so drawing is idempotent and re-fired on every style.load.
@@ -66,12 +109,103 @@ export default function MapViewImpl({ posts, onOpen }: { posts: Post[]; onOpen: 
     }
   }
 
+  // The plotted route — a raster layer dies on setStyle, so this too re-fires on
+  // style.load. Dashed amber = UNVERIFIED (safety rail §9), distinct from the
+  // solid cyan of confirmed tracks.
+  function drawRoute(map: maplibregl.Map) {
+    if (map.getLayer("plot-route")) map.removeLayer("plot-route");
+    if (map.getSource("plot-route")) map.removeSource("plot-route");
+    const p = plotRef.current;
+    if (!p) return;
+    const segs = p.segments.filter((s) => s.length > 1);
+    if (!segs.length) return;
+    map.addSource("plot-route", {
+      type: "geojson",
+      data: { type: "Feature", properties: {}, geometry: { type: "MultiLineString", coordinates: segs.map((seg) => seg.map((pt) => [pt.lng, pt.lat])) } },
+    });
+    map.addLayer({
+      id: "plot-route", type: "line", source: "plot-route",
+      paint: { "line-color": "#ffb454", "line-width": 3, "line-opacity": 0.95, "line-dasharray": [2, 1.6] },
+      layout: { "line-cap": "round", "line-join": "round" },
+    });
+  }
+
+  // DOM markers survive setStyle, but a posts-remount rebuilds the map, so we
+  // re-attach from the ref. Clear-then-add keeps it idempotent.
+  function syncMarkers(map: maplibregl.Map) {
+    for (const mk of markerObjsRef.current) mk.remove();
+    markerObjsRef.current = [];
+    for (const m of markersRef.current) {
+      if (!m.include) continue;
+      const critical = POI[m.poiType].safetyCritical;
+      const el = document.createElement("div");
+      el.className = "plot-pin" + (critical ? " is-critical" : "");
+      el.title = m.label;
+      const dot = document.createElement("span");
+      dot.className = "plot-pin-dot";
+      const lab = document.createElement("span");
+      lab.className = "plot-pin-label";
+      lab.textContent = m.label; // textContent, not innerHTML — labels are user input
+      el.append(dot, lab);
+      const mk = new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([m.lng, m.lat]).addTo(map);
+      markerObjsRef.current.push(mk);
+    }
+  }
+
   function pickBasemap(k: BasemapKey) {
     setBasemap(k);
     localStorage.setItem("pg_basemap", k);
-    mapRef.current?.setStyle(BASEMAPS[k]); // markers survive (DOM); track layers re-add on style.load
+    mapRef.current?.setStyle(BASEMAPS[k]); // markers survive (DOM); line layers re-add on style.load
     track("filter_change", { props: { basemap: k } });
   }
+
+  // ── Plot actions ────────────────────────────────────────────────────────────
+  async function takePlot(file: File | undefined) {
+    if (!file) return;
+    setPlotErr("");
+    if (file.size > MAX_FILE_BYTES) { setPlotErr("File too large (25MB max)."); return; }
+    const text = await file.text();
+    const isGeo = /\.(geojson|json)$/i.test(file.name) || text.trimStart().startsWith("{");
+    const parsed = isGeo ? parseGeoJSON(text) : parseGpx(text);
+    if (!parsed) { setPlotErr("Couldn't read that as a GPX or GeoJSON track."); return; }
+
+    const mined: PlotMarker[] = [
+      ...parsed.waypoints.map((w): PlotMarker => ({
+        id: uid(), lat: w.lat, lng: w.lng,
+        label: w.name ?? "Waypoint",
+        poiType: SYM_TO_POI[(w.sym ?? "").toLowerCase()] ?? "other",
+        include: true, source: "import",
+      })),
+      ...parsed.gaps.map((g): PlotMarker => ({
+        id: uid(), lat: g.lat, lng: g.lng,
+        label: g.durationMin >= 360 ? `Overnight stop (${Math.round(g.durationMin / 60)}h)` : `Rest stop (${g.durationMin} min)`,
+        poiType: g.durationMin >= 360 ? "camp" : "other",
+        include: true, source: "import",
+      })),
+    ];
+    setPlot(parsed);
+    setMarkers(mined);
+    track("plot_import", { props: { format: isGeo ? "geojson" : "gpx", markers: mined.length, points: parsed.rawCount } });
+
+    const map = mapRef.current;
+    if (map) {
+      const b = new maplibregl.LngLatBounds();
+      for (const seg of parsed.segments) for (const pt of seg) b.extend([pt.lng, pt.lat]);
+      for (const m of mined) b.extend([m.lng, m.lat]);
+      if (!b.isEmpty()) map.fitBounds(b, { padding: 80, maxZoom: 14, duration: 400 });
+    }
+  }
+
+  function clearPlot() {
+    setPlot(null);
+    setMarkers([]);
+    setPlotErr("");
+    setAddMode(false);
+  }
+
+  const editMarker = (id: string, patch: Partial<PlotMarker>) =>
+    setMarkers((ms) => ms.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+  const removeMarker = (id: string) => setMarkers((ms) => ms.filter((x) => x.id !== id));
 
   const geoPosts = posts.filter((p) => p.captureLat != null && p.captureLng != null);
 
@@ -102,16 +236,50 @@ export default function MapViewImpl({ posts, onOpen }: { posts: Post[]; onOpen: 
     }
     if (geoPosts.length) map.fitBounds(bounds, { padding: 80, maxZoom: 11, duration: 0 });
 
-    map.on("style.load", () => drawTracks(map));
+    // Line layers (tracks + plot route) die on setStyle → redraw on every load.
+    map.on("style.load", () => { drawTracks(map); drawRoute(map); });
+    // Click to drop a human marker when Add-marker mode is armed.
+    map.on("click", (e) => {
+      if (!addModeRef.current) return;
+      const { lng, lat } = e.lngLat;
+      setMarkers((ms) => [...ms, { id: uid(), lat, lng, label: "New marker", poiType: "other", include: true, source: "human" }]);
+      setAddMode(false);
+      track("plot_marker_add", { props: { poiType: "other" } });
+    });
+
     loadTracksForPosts(geoPosts.map((p) => p.id)).then((ts) => {
       tracksRef.current = ts;
       if (map.isStyleLoaded()) drawTracks(map);
     });
 
+    // Re-apply any existing plot (state survives this posts-remount).
+    const applyPlot = () => { drawRoute(map); syncMarkers(map); };
+    if (map.isStyleLoaded()) applyPlot(); else map.once("style.load", applyPlot);
+
     return () => { mapRef.current = null; map.remove(); };
     // Re-mounting per posts change is fine at prototype scale.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [posts.length]);
+
+  // Live redraw when the plot draft changes (no basemap reload involved).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const go = () => drawRoute(map);
+    if (map.isStyleLoaded()) go(); else map.once("style.load", go);
+  }, [plot]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map) syncMarkers(map);
+  }, [markers]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map) map.getCanvas().style.cursor = addMode ? "crosshair" : "";
+  }, [addMode]);
+
+  const included = markers.filter((m) => m.include).length;
 
   return (
     <div className="map-wrap">
@@ -123,7 +291,58 @@ export default function MapViewImpl({ posts, onOpen }: { posts: Post[]; onOpen: 
           </button>
         ))}
       </div>
-      {geoPosts.length === 0 && (
+
+      {/* Plot: import a route + curate markers (local draft only). */}
+      <div className="plot-panel glass">
+        <div className="plot-panel-head">
+          <div className="eyebrow">Plot</div>
+          <button className="btn-sec" onClick={() => plotInputRef.current?.click()}>
+            {plot ? "Replace file" : "Plot a route"}
+          </button>
+        </div>
+        <input
+          ref={plotInputRef} type="file" hidden
+          accept=".gpx,.geojson,.json,application/gpx+xml,application/geo+json"
+          onChange={(e) => takePlot(e.target.files?.[0])}
+        />
+        {plotErr && <p className="plot-err">{plotErr}</p>}
+        {!plot && !plotErr && (
+          <p className="plot-hint">Drop a GPX or GeoJSON — we keep the rough outline plus camps, water, and points of interest.</p>
+        )}
+
+        {plot && (
+          <>
+            <div className="plot-meta">
+              {plot.name && <b>{plot.name}</b>}
+              <span>{(plot.distanceM / 1000).toFixed(1)} km · {Math.round(plot.gainM)} m gain · {included} marker{included === 1 ? "" : "s"}</span>
+            </div>
+            <div className="plot-actions">
+              <button className="btn-sec" data-on={addMode} onClick={() => setAddMode((v) => !v)}>
+                {addMode ? "Click map to place…" : "Add marker"}
+              </button>
+              <button className="btn-sec" onClick={clearPlot}>Clear</button>
+            </div>
+            <p className="plot-note">Imported lines are unverified observations — confirm on the ground, never an endorsement.</p>
+            <div className="plot-cands">
+              {markers.length === 0 && <p className="plot-hint">No markers yet — use “Add marker”.</p>}
+              {markers.map((m) => (
+                <div key={m.id} className="plot-cand" data-critical={POI[m.poiType].safetyCritical}>
+                  <input type="checkbox" checked={m.include} onChange={(e) => editMarker(m.id, { include: e.target.checked })} aria-label="Include marker" />
+                  <input className="plot-cand-label" value={m.label} onChange={(e) => editMarker(m.id, { label: e.target.value })} />
+                  <select value={m.poiType} onChange={(e) => editMarker(m.id, { poiType: e.target.value as PoiType })}>
+                    {(Object.keys(POI) as PoiType[]).map((k) => (
+                      <option key={k} value={k}>{POI[k].label}</option>
+                    ))}
+                  </select>
+                  <button className="plot-cand-x" onClick={() => removeMarker(m.id)} aria-label="Remove marker">✕</button>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {geoPosts.length === 0 && !plot && (
         <div className="map-empty glass">
           <div className="eyebrow">No located captures yet</div>
           <p>Panoramas with GPS in their metadata land here automatically — shoot with location on and the atlas draws itself.</p>
