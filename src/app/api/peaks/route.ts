@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getSupabaseAdmin } from "@/lib/supabase";
 
 // Deterministic peak data for the horizon-label layer (VISION deterministic
 // layer, sibling of the sun): named OSM peaks near a capture point plus the
@@ -73,11 +74,26 @@ export async function GET(req: Request) {
   }
 
   const key = `${lat.toFixed(2)},${lng.toFixed(2)}`; // ~1km buckets
+
+  // L1 — in-memory (per instance, fastest).
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < CACHE_MS) {
     return NextResponse.json({ ok: true, ...hit.body });
   }
 
+  // L2 — durable DB cache: Overpass only has to succeed ONCE per bucket, ever.
+  // After that this layer is instant and never touches a live external service.
+  const admin = getSupabaseAdmin();
+  if (admin) {
+    const { data } = await admin.from("peak_cache").select("capture_ele,peaks").eq("bucket", key).maybeSingle();
+    if (data) {
+      const body: PeaksResponse = { captureEle: data.capture_ele ?? 0, peaks: (data.peaks as Peak[]) ?? [] };
+      cache.set(key, { at: Date.now(), body });
+      return NextResponse.json({ ok: true, ...body });
+    }
+  }
+
+  // Miss both caches → live lookup (the only path that can hit flaky Overpass).
   type Elevation = { elevation: number[] };
   const [osmEls, ele] = await Promise.all([
     overpassPeaks(lat, lng),
@@ -99,5 +115,11 @@ export async function GET(req: Request) {
 
   const body: PeaksResponse = { captureEle: ele?.elevation?.[0] ?? 0, peaks };
   cache.set(key, { at: Date.now(), body });
+  // Persist durably (best-effort — a cache write must never fail the response).
+  if (admin) {
+    await admin.from("peak_cache")
+      .upsert({ bucket: key, capture_ele: body.captureEle, peaks, updated_at: new Date().toISOString() })
+      .then(() => {}, () => {});
+  }
   return NextResponse.json({ ok: true, ...body });
 }
