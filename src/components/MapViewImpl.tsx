@@ -30,10 +30,19 @@ function rasterStyle(tiles: string[], attribution: string, tileSize = 256): mapl
   };
 }
 
+const CARTO_ATTR = `${OSM_ATTR} · © <a href="https://carto.com/attributions">CARTO</a>`;
 const BASEMAPS = {
   void: rasterStyle(
     ["a", "b", "c"].map((s) => `https://${s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png`),
-    `${OSM_ATTR} · © <a href="https://carto.com/attributions">CARTO</a>`,
+    CARTO_ATTR,
+  ),
+  light: rasterStyle(
+    ["a", "b", "c"].map((s) => `https://${s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png`),
+    CARTO_ATTR,
+  ),
+  satellite: rasterStyle(
+    ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
+    'Imagery © <a href="https://www.esri.com">Esri</a>, Maxar, Earthstar Geographics',
   ),
   topo: rasterStyle(
     ["https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}"],
@@ -45,7 +54,9 @@ const BASEMAPS = {
   ),
 } as const;
 type BasemapKey = keyof typeof BASEMAPS;
-const BASEMAP_LABELS: Record<BasemapKey, string> = { void: "Void", topo: "Topo", terrain: "Terrain" };
+const BASEMAP_LABELS: Record<BasemapKey, string> = {
+  void: "Void", light: "Light", satellite: "Satellite", topo: "Topo", terrain: "Terrain",
+};
 
 // Garmin/Gaia symbols → our POI vocabulary (same mapping the Upload flow uses).
 const SYM_TO_POI: Record<string, PoiType> = {
