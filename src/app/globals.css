@@ -563,6 +563,13 @@ button.stat:hover { color: var(--ink); }
   position: absolute; left: 14px; bottom: 14px; padding: 8px 14px; border-radius: 999px;
   font-family: var(--font-m); font-size: 11px; letter-spacing: 0.02em; color: var(--ink-dim);
 }
+.map-3d-controls { position: absolute; top: 14px; left: 14px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.map-3d-seg, .map-3d-tools {
+  padding: 4px; border-radius: 12px; background: rgba(6,6,11,0.7);
+  border: 1px solid var(--hair-bright); backdrop-filter: blur(8px);
+}
+.map-3d-tools { display: flex; gap: 6px; padding: 6px; }
+.map-3d-err { position: absolute; left: 14px; bottom: 56px; padding: 8px 14px; border-radius: 10px; color: var(--coral); font-size: 12.5px; }
 .map-stage .mapboxgl-ctrl-attrib { background: rgba(6,6,11,0.6); color: var(--ink-faint); font-size: 10px; }
 .map-stage .mapboxgl-ctrl-attrib a { color: var(--ink-dim); }
 

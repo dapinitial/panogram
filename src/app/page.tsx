@@ -217,7 +217,7 @@ export default function Home() {
               </div>
             </header>
             {atlas3D
-              ? <MapView3D posts={posts} onOpen={setViewingId} plot={atlasPlot} />
+              ? <MapView3D posts={posts} onOpen={setViewingId} plot={atlasPlot} onPlotChange={setAtlasPlot} />
               : <MapView posts={posts} onOpen={setViewingId} user={user} onAuthRequired={() => setAuthOpen(true)} plot={atlasPlot} onPlotChange={setAtlasPlot} />}
           </>
         )}

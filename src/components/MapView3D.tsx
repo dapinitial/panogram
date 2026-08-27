@@ -15,6 +15,11 @@ const Impl = dynamic(() => import("./MapView3DImpl"), {
   ),
 });
 
-export default function MapView3D(props: { posts: Post[]; onOpen: (id: string) => void; plot: AtlasPlot | null }) {
+export default function MapView3D(props: {
+  posts: Post[];
+  onOpen: (id: string) => void;
+  plot: AtlasPlot | null;
+  onPlotChange: (p: AtlasPlot | null) => void;
+}) {
   return <Impl {...props} />;
 }

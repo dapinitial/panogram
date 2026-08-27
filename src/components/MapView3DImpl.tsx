@@ -1,12 +1,23 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import type { Post } from "@/lib/types";
 import { POI } from "@/lib/types";
-import type { AtlasPlot } from "@/lib/db";
+import type { AtlasPlot, SavedMapMarker } from "@/lib/db";
+import { importPlotFile } from "@/lib/plot-import";
 import { track } from "@/lib/telemetry";
+
+// Mapbox base styles offered on the 3D map (dusk light preset only applies to Standard).
+const STYLES = {
+  standard: "mapbox://styles/mapbox/standard",
+  satellite: "mapbox://styles/mapbox/satellite-streets-v12",
+  outdoors: "mapbox://styles/mapbox/outdoors-v12",
+} as const;
+type StyleKey = keyof typeof STYLES;
+const STYLE_LABELS: Record<StyleKey, string> = { standard: "Standard", satellite: "Satellite", outdoors: "Outdoors" };
+const uid = () => Math.random().toString(36).slice(2);
 
 // The Atlas in 3D — a SEPARATE engine from the MapLibre 2D map (Slice 4). Mapbox
 // Standard gives real terrain, atmosphere, and a globe you tilt into; we render
@@ -15,7 +26,12 @@ import { track } from "@/lib/telemetry";
 
 const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 
-export default function MapView3DImpl({ posts, onOpen, plot }: { posts: Post[]; onOpen: (id: string) => void; plot: AtlasPlot | null }) {
+export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange }: {
+  posts: Post[];
+  onOpen: (id: string) => void;
+  plot: AtlasPlot | null;
+  onPlotChange: (p: AtlasPlot | null) => void;
+}) {
   const box = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const onOpenRef = useRef(onOpen);
@@ -23,6 +39,24 @@ export default function MapView3DImpl({ posts, onOpen, plot }: { posts: Post[]; 
   const plotRef = useRef<AtlasPlot | null>(plot);
   useEffect(() => { plotRef.current = plot; }, [plot]);
   const plotMarkersRef = useRef<mapboxgl.Marker[]>([]);
+  const onPlotChangeRef = useRef(onPlotChange);
+  useEffect(() => { onPlotChangeRef.current = onPlotChange; });
+
+  const [mstyle, setMstyle] = useState<StyleKey>("standard");
+  const [addMode, setAddMode] = useState(false);
+  const addModeRef = useRef(false);
+  useEffect(() => { addModeRef.current = addMode; }, [addMode]);
+  const [err, setErr] = useState("");
+  const plotInputRef = useRef<HTMLInputElement>(null);
+
+  async function takePlot(file: File | undefined) {
+    if (!file) return;
+    setErr("");
+    const res = await importPlotFile(file);
+    if ("error" in res) { setErr(res.error); return; }
+    onPlotChangeRef.current(res.plot);
+    track("plot_import", { props: { format: res.format, markers: res.plot.markers.length, from: "3d" } });
+  }
 
   const geoPosts = posts.filter((p) => p.captureLat != null && p.captureLng != null);
 
@@ -78,7 +112,7 @@ export default function MapView3DImpl({ posts, onOpen, plot }: { posts: Post[]; 
     mapboxgl.accessToken = TOKEN;
     const map = new mapboxgl.Map({
       container: box.current,
-      style: "mapbox://styles/mapbox/standard",
+      style: STYLES[mstyle],
       center: [-100, 40],
       zoom: 2.6,
       pitch: 55,
@@ -87,6 +121,18 @@ export default function MapView3DImpl({ posts, onOpen, plot }: { posts: Post[]; 
     });
     mapRef.current = map;
     map.addControl(new mapboxgl.NavigationControl({ visualizePitch: true }), "top-right");
+
+    // Click the terrain to drop a marker onto the shared plot (Add-marker mode).
+    map.on("click", (e) => {
+      if (!addModeRef.current) return;
+      const m: SavedMapMarker = { lat: e.lngLat.lat, lng: e.lngLat.lng, label: "New marker", poiType: "other" };
+      const cur = plotRef.current;
+      onPlotChangeRef.current(cur
+        ? { ...cur, markers: [...cur.markers, m] }
+        : { title: "New map", route: [], markers: [m], distanceM: 0, gainM: 0 });
+      setAddMode(false);
+      track("plot_marker_add", { props: { poiType: "other", from: "3d" } });
+    });
 
     map.on("style.load", () => {
       // Cinematic dusk lighting + atmospheric fog for the globe.
@@ -143,6 +189,18 @@ export default function MapView3DImpl({ posts, onOpen, plot }: { posts: Post[]; 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plot]);
 
+  // Switch Mapbox base style (terrain + plot re-apply on the style.load handler).
+  const styleInit = useRef(true);
+  useEffect(() => {
+    if (styleInit.current) { styleInit.current = false; return; }
+    mapRef.current?.setStyle(STYLES[mstyle]);
+  }, [mstyle]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map) map.getCanvas().style.cursor = addMode ? "crosshair" : "";
+  }, [addMode]);
+
   if (!TOKEN) {
     return (
       <div className="map-wrap">
@@ -159,6 +217,19 @@ export default function MapView3DImpl({ posts, onOpen, plot }: { posts: Post[]; 
   return (
     <div className="map-wrap">
       <div ref={box} className="map-stage" />
+      <div className="map-3d-controls">
+        <div className="seg map-3d-seg">
+          {(Object.keys(STYLES) as StyleKey[]).map((k) => (
+            <button key={k} className="seg-opt" data-active={mstyle === k} onClick={() => setMstyle(k)}>{STYLE_LABELS[k]}</button>
+          ))}
+        </div>
+        <div className="map-3d-tools">
+          <button className="btn-sec" onClick={() => plotInputRef.current?.click()}>Import</button>
+          <button className="btn-sec" data-on={addMode} onClick={() => setAddMode((v) => !v)}>{addMode ? "Click terrain…" : "Add marker"}</button>
+        </div>
+      </div>
+      <input ref={plotInputRef} type="file" hidden accept=".gpx,.geojson,.json,application/gpx+xml,application/geo+json" onChange={(e) => takePlot(e.target.files?.[0])} />
+      {err && <div className="map-3d-err glass">{err}</div>}
       <div className="map-3d-hint glass">Drag to orbit · scroll to zoom · right-drag to tilt</div>
     </div>
   );
