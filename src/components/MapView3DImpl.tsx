@@ -109,6 +109,7 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange }: {
   // dashed = unverified, same language as the flat Atlas (safety rail §9).
   function renderPlot(map: mapboxgl.Map) {
     if (map.getLayer("plot-route")) map.removeLayer("plot-route");
+    if (map.getLayer("plot-route-casing")) map.removeLayer("plot-route-casing");
     if (map.getSource("plot-route")) map.removeSource("plot-route");
     for (const mk of plotMarkersRef.current) mk.remove();
     plotMarkersRef.current = [];
@@ -120,11 +121,9 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange }: {
         type: "geojson",
         data: { type: "Feature", properties: {}, geometry: { type: "MultiLineString", coordinates: segs.map((seg) => seg.map((pt) => [pt.lng, pt.lat])) } },
       });
-      map.addLayer({
-        id: "plot-route", type: "line", source: "plot-route",
-        paint: { "line-color": p.color ?? "#ffd24a", "line-width": 4.5, "line-opacity": 1, "line-dasharray": [2.4, 1.4] },
-        layout: { "line-cap": "round", "line-join": "round" },
-      });
+      const lay = { "line-cap": "round" as const, "line-join": "round" as const };
+      map.addLayer({ id: "plot-route-casing", type: "line", source: "plot-route", paint: { "line-color": "#0a0a12", "line-width": 8, "line-opacity": 0.6 }, layout: lay });
+      map.addLayer({ id: "plot-route", type: "line", source: "plot-route", paint: { "line-color": p.color ?? "#ffd24a", "line-width": 4.5, "line-opacity": 1 }, layout: lay });
     }
     p.markers.forEach((m, i) => {
       const critical = POI[m.poiType].safetyCritical;

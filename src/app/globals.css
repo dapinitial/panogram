@@ -598,6 +598,9 @@ button.stat:hover { color: var(--ink); }
   position: absolute; left: 14px; bottom: 14px; width: min(400px, calc(100% - 28px));
   padding: 12px 14px; border-radius: 14px; display: grid; gap: 10px;
   max-height: min(52vh, 460px); overflow-y: auto;
+  background: rgba(9, 10, 18, 0.95);          /* solid so the controls read over the map */
+  border: 1px solid var(--hair-bright);
+  box-shadow: 0 18px 50px -18px rgba(0,0,0,0.9);
 }
 .plot-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .plot-head-actions { display: flex; gap: 6px; }
@@ -619,17 +622,19 @@ button.stat:hover { color: var(--ink); }
 .plot-cands { display: grid; gap: 6px; }
 .plot-cand {
   display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 10px;
-  background: var(--panel); border: 1px solid var(--hair); font-size: 13px;
+  background: rgba(255,255,255,0.05); border: 1px solid var(--hair-bright); font-size: 13px;
 }
-.plot-cand[data-critical="true"] { border-color: rgba(255,205,100,0.5); }
+.plot-cand[data-critical="true"] { border-color: rgba(255,205,100,0.6); }
 .plot-cand-label {
-  flex: 1; min-width: 0; background: rgba(6,6,11,0.4); color: var(--ink);
-  border: 1px solid var(--hair); border-radius: 8px; padding: 4px 8px; font-size: 12.5px;
+  flex: 1; min-width: 0; background: rgba(255,255,255,0.09); color: #fff;
+  border: 1px solid var(--hair-bright); border-radius: 8px; padding: 6px 9px; font-size: 13px;
 }
+.plot-cand-label:focus { outline: none; border-color: var(--accent); background: rgba(255,255,255,0.13); }
 .plot-cand select {
-  background: rgba(6,6,11,0.5); color: var(--ink); border: 1px solid var(--hair);
-  border-radius: 8px; padding: 4px 6px; font-size: 12px; max-width: 96px;
+  background: rgba(255,255,255,0.09); color: #fff; border: 1px solid var(--hair-bright);
+  border-radius: 8px; padding: 5px 6px; font-size: 12px; max-width: 104px;
 }
+.plot-cand select option { background: #14151f; color: #fff; }
 .plot-cand-x { background: none; border: 0; color: var(--ink-faint); cursor: pointer; font-size: 13px; padding: 2px 4px; }
 .plot-cand-x:hover { color: var(--coral); }
 .plot-saved { color: var(--holo, #7CF5D4); font-size: 12.5px; }
@@ -639,9 +644,10 @@ button.stat:hover { color: var(--ink); }
 .plot-color[data-on="true"] { box-shadow: 0 0 0 2px var(--void), 0 0 0 3px var(--ink); }
 .plot-save { display: flex; gap: 8px; align-items: center; }
 .plot-title {
-  flex: 1; min-width: 0; background: rgba(6,6,11,0.4); color: var(--ink);
-  border: 1px solid var(--hair); border-radius: 8px; padding: 7px 10px; font-size: 13px;
+  flex: 1; min-width: 0; background: rgba(255,255,255,0.09); color: #fff;
+  border: 1px solid var(--hair-bright); border-radius: 8px; padding: 7px 10px; font-size: 13px;
 }
+.plot-title:focus { outline: none; border-color: var(--accent); }
 .plot-save .btn-upload { white-space: nowrap; }
 
 /* My maps — the member's own saved plots on the Atlas */
