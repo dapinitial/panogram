@@ -7,7 +7,7 @@ import type { Post, Track, PoiType } from "@/lib/types";
 import { POI } from "@/lib/types";
 import { track } from "@/lib/telemetry";
 import { loadTracksForPosts, saveMap, loadMyMaps, deleteMap, type SavedMap, type SavedMapMarker, type MapRoutePoint, type AtlasPlot } from "@/lib/db";
-import { parseGpx, type ParsedTrack } from "@/lib/gpx";
+import { parseGpx, trackStats, type ParsedTrack } from "@/lib/gpx";
 import { parseGeoJSON } from "@/lib/geojson";
 import { stashPendingMap, readPendingMap, clearPendingMap } from "@/lib/plot-draft";
 
@@ -100,6 +100,12 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
   const [markers, setMarkers] = useState<PlotMarker[]>([]);
   const [plotErr, setPlotErr] = useState("");
   const [addMode, setAddMode] = useState(false);
+  const [drawMode, setDrawMode] = useState(false);           // freehand line-drawing on the map
+  const [drawing, setDrawing] = useState<MapRoutePoint[]>([]);
+  const drawModeRef = useRef(false);
+  const drawingRef = useRef<MapRoutePoint[]>([]);
+  useEffect(() => { drawModeRef.current = drawMode; }, [drawMode]);
+  useEffect(() => { drawingRef.current = drawing; }, [drawing]);
   const plotInputRef = useRef<HTMLInputElement>(null);
   // Saving to a member's dashboard (Slice 3).
   const [title, setTitle] = useState("");
@@ -226,12 +232,55 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
     setMarkers([]);
     setPlotErr("");
     setAddMode(false);
+    setDrawMode(false);
+    setDrawing([]);
     setTitle("");
   }
 
   const editMarker = (id: string, patch: Partial<PlotMarker>) =>
     setMarkers((ms) => ms.map((x) => (x.id === id ? { ...x, ...patch } : x)));
   const removeMarker = (id: string) => setMarkers((ms) => ms.filter((x) => x.id !== id));
+
+  // ── Freehand draw: click the map to lay down a route by hand ────────────────
+  function drawLive(map: maplibregl.Map) {
+    if (map.getLayer("draw-line")) map.removeLayer("draw-line");
+    if (map.getSource("draw-line")) map.removeSource("draw-line");
+    const pts = drawingRef.current;
+    if (!pts.length) return;
+    map.addSource("draw-line", { type: "geojson", data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: pts.map((p) => [p.lng, p.lat]) } } });
+    map.addLayer({
+      id: "draw-line", type: "line", source: "draw-line",
+      paint: { "line-color": "#aef23a", "line-width": 3, "line-opacity": 0.95 },
+      layout: { "line-cap": "round", "line-join": "round" },
+    });
+  }
+
+  function toggleDraw() {
+    setAddMode(false);
+    setDrawMode((v) => { if (v) setDrawing([]); return !v; });
+  }
+
+  // Commit the drawn line — append it as a segment to the active plot (or start
+  // one), so it saves and renders in 3D like an imported route.
+  function finishDraw() {
+    const pts = drawing;
+    setDrawMode(false);
+    setDrawing([]);
+    if (pts.length < 2) return;
+    const base = plotRef.current;
+    const segments = base ? [...base.segments, pts] : [pts];
+    const { distanceM, gainM } = trackStats(segments);
+    setPlot({
+      segments, rawCount: segments.reduce((n, s) => n + s.length, 0),
+      distanceM, gainM, name: base?.name ?? "Drawn route", recordedAt: null, waypoints: [], gaps: [],
+    });
+    track("route_draw", { props: { points: pts.length, source: "atlas" } });
+  }
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map) drawLive(map);
+  }, [drawing]);
 
   // ── Save / load / delete member maps (Slice 3) ──────────────────────────────
   // Frame the map to a route+markers. If the map isn't built yet (e.g. a plot
@@ -377,9 +426,10 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
     if (geoPosts.length) map.fitBounds(bounds, { padding: 80, maxZoom: 11, duration: 0 });
 
     // Line layers (tracks + plot route) die on setStyle → redraw on every load.
-    map.on("style.load", () => { drawTracks(map); drawRoute(map); });
-    // Click to drop a human marker when Add-marker mode is armed.
+    map.on("style.load", () => { drawTracks(map); drawRoute(map); drawLive(map); });
+    // Map clicks: extend the freehand line, else drop a marker (when armed).
     map.on("click", (e) => {
+      if (drawModeRef.current) { setDrawing((d) => [...d, { lat: e.lngLat.lat, lng: e.lngLat.lng, ele: null }]); return; }
       if (!addModeRef.current) return;
       const { lng, lat } = e.lngLat;
       setMarkers((ms) => [...ms, { id: uid(), lat, lng, label: "New marker", poiType: "other", include: true, source: "human" }]);
@@ -421,8 +471,8 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
 
   useEffect(() => {
     const map = mapRef.current;
-    if (map) map.getCanvas().style.cursor = addMode ? "crosshair" : "";
-  }, [addMode]);
+    if (map) map.getCanvas().style.cursor = (addMode || drawMode) ? "crosshair" : "";
+  }, [addMode, drawMode]);
 
   const included = markers.filter((m) => m.include).length;
 
@@ -441,9 +491,10 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
       <div className="plot-panel glass">
         <div className="plot-panel-head">
           <div className="eyebrow">Plot</div>
-          <button className="btn-sec" onClick={() => plotInputRef.current?.click()}>
-            {plot ? "Replace file" : "Plot a route"}
-          </button>
+          <div className="plot-head-actions">
+            <button className="btn-sec" onClick={() => plotInputRef.current?.click()}>{plot ? "Replace" : "Import"}</button>
+            <button className="btn-sec" data-on={drawMode} onClick={toggleDraw}>Draw</button>
+          </div>
         </div>
         <input
           ref={plotInputRef} type="file" hidden
@@ -517,7 +568,16 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
         )}
       </div>
 
-      {geoPosts.length === 0 && !plot && (
+      {drawMode && (
+        <div className="map-draw-hud glass">
+          <span>{drawing.length === 0 ? "Click the map to start the line" : `${drawing.length} point${drawing.length === 1 ? "" : "s"}`}</span>
+          {drawing.length > 0 && <button className="hint-act" onClick={() => setDrawing((d) => d.slice(0, -1))}>↩ Undo</button>}
+          <button className="hint-act" onClick={() => { setDrawMode(false); setDrawing([]); }}>✕ Cancel</button>
+          {drawing.length > 1 && <button className="hint-act hint-act--go" onClick={finishDraw}>✓ Finish line</button>}
+        </div>
+      )}
+
+      {geoPosts.length === 0 && !plot && !drawMode && (
         <div className="map-empty glass">
           <div className="eyebrow">No located captures yet</div>
           <p>Panoramas with GPS in their metadata land here automatically — shoot with location on and the atlas draws itself.</p>
