@@ -5,7 +5,7 @@ import { POSTS } from "@/lib/mock";
 import type { Post } from "@/lib/types";
 import { track } from "@/lib/telemetry";
 import { browserSupabase } from "@/lib/supabase-browser";
-import { loadFeed, loadMyEngagement, loadNotifications, loadMyBlocks, loadMyBlockedProfiles, blockUser, unblockUser, toggleLike, toggleSave, toggleFollow, followerCount, type Notification } from "@/lib/db";
+import { loadFeed, loadMyEngagement, loadNotifications, loadMyBlocks, loadMyBlockedProfiles, blockUser, unblockUser, toggleLike, toggleSave, toggleFollow, followerCount, type Notification, type AtlasPlot } from "@/lib/db";
 import Nav, { type Tab } from "@/components/Nav";
 import Feed from "@/components/Feed";
 import MapView from "@/components/MapView";
@@ -27,6 +27,7 @@ export default function Home() {
   const [viewingId, setViewingId] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [atlas3D, setAtlas3D] = useState(false);
+  const [atlasPlot, setAtlasPlot] = useState<AtlasPlot | null>(null); // shared flat ⇄ 3D
   const [authOpen, setAuthOpen] = useState(false);
   const [user, setUser] = useState<{ id: string; email?: string } | null>(null);
   const [query, setQuery] = useState("");
@@ -216,8 +217,8 @@ export default function Home() {
               </div>
             </header>
             {atlas3D
-              ? <MapView3D posts={posts} onOpen={setViewingId} />
-              : <MapView posts={posts} onOpen={setViewingId} user={user} onAuthRequired={() => setAuthOpen(true)} />}
+              ? <MapView3D posts={posts} onOpen={setViewingId} plot={atlasPlot} />
+              : <MapView posts={posts} onOpen={setViewingId} user={user} onAuthRequired={() => setAuthOpen(true)} plot={atlasPlot} onPlotChange={setAtlasPlot} />}
           </>
         )}
 

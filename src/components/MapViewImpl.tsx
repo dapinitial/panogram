@@ -6,7 +6,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import type { Post, Track, PoiType } from "@/lib/types";
 import { POI } from "@/lib/types";
 import { track } from "@/lib/telemetry";
-import { loadTracksForPosts, saveMap, loadMyMaps, deleteMap, type SavedMap, type SavedMapMarker, type MapRoutePoint } from "@/lib/db";
+import { loadTracksForPosts, saveMap, loadMyMaps, deleteMap, type SavedMap, type SavedMapMarker, type MapRoutePoint, type AtlasPlot } from "@/lib/db";
 import { parseGpx, type ParsedTrack } from "@/lib/gpx";
 import { parseGeoJSON } from "@/lib/geojson";
 import { stashPendingMap, readPendingMap, clearPendingMap } from "@/lib/plot-draft";
@@ -78,11 +78,13 @@ type PlotMarker = {
 const uid = () => Math.random().toString(36).slice(2);
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
-export default function MapViewImpl({ posts, onOpen, user, onAuthRequired }: {
+export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot: sharedPlot, onPlotChange }: {
   posts: Post[];
   onOpen: (id: string) => void;
   user: { id: string; email?: string } | null;
   onAuthRequired: () => void;
+  plot: AtlasPlot | null;                       // shared active plot (seeds this view)
+  onPlotChange: (p: AtlasPlot | null) => void;  // report changes up so 3D sees them
 }) {
   const box = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -321,6 +323,21 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired }: {
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
+
+  // Seed from the shared plot on mount (e.g. returning to flat after viewing in 3D).
+  useEffect(() => {
+    if (sharedPlot && !plotRef.current) loadSaved(sharedPlot);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Report the active plot up so the 3D engine renders the same thing. Skip the
+  // first mount when we're about to seed, so we don't clobber the shared plot.
+  const reportedOnce = useRef(false);
+  useEffect(() => {
+    if (!reportedOnce.current) { reportedOnce.current = true; if (!plot && sharedPlot) return; }
+    onPlotChange(currentPayload());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plot, markers, title]);
 
   const geoPosts = posts.filter((p) => p.captureLat != null && p.captureLng != null);
 
