@@ -9,6 +9,7 @@ import { loadFeed, loadMyEngagement, loadNotifications, loadMyBlocks, loadMyBloc
 import Nav, { type Tab } from "@/components/Nav";
 import Feed from "@/components/Feed";
 import MapView from "@/components/MapView";
+import { hasPendingMap } from "@/lib/plot-draft";
 import Immersive, { readPendingAnnotation } from "@/components/Immersive";
 import Upload from "@/components/Upload";
 import AuthSheet from "@/components/AuthSheet";
@@ -62,6 +63,12 @@ export default function Home() {
     if (!p || viewingId === p.postId) return;
     if (posts.some((x) => x.id === p.postId)) setViewingId(p.postId);
   }, [user, posts, viewingId]);
+
+  // Same idea for a plotted Atlas map: sign-in interrupted a Save → jump to the
+  // Atlas so MapView can restore the draft and finish saving it.
+  useEffect(() => {
+    if (user && hasPendingMap()) setTab("Atlas");
+  }, [user]);
 
   function openBell() {
     setNotifOpen(true);
@@ -186,7 +193,7 @@ export default function Home() {
               <div className="eyebrow">Atlas</div>
               <h1>Every capture, <span className="gradient-text">on the map.</span></h1>
             </header>
-            <MapView posts={posts} onOpen={setViewingId} />
+            <MapView posts={posts} onOpen={setViewingId} user={user} onAuthRequired={() => setAuthOpen(true)} />
           </>
         )}
 

@@ -6,9 +6,10 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import type { Post, Track, PoiType } from "@/lib/types";
 import { POI } from "@/lib/types";
 import { track } from "@/lib/telemetry";
-import { loadTracksForPosts } from "@/lib/db";
+import { loadTracksForPosts, saveMap, loadMyMaps, deleteMap, type SavedMap, type SavedMapMarker, type MapRoutePoint } from "@/lib/db";
 import { parseGpx, type ParsedTrack } from "@/lib/gpx";
 import { parseGeoJSON } from "@/lib/geojson";
+import { stashPendingMap, readPendingMap, clearPendingMap } from "@/lib/plot-draft";
 
 // The Atlas: every geo-tagged capture as a pin on a world map — the "world,
 // not feed" surface the spatial layer builds toward. Three free basemaps, no
@@ -66,7 +67,12 @@ type PlotMarker = {
 const uid = () => Math.random().toString(36).slice(2);
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
-export default function MapViewImpl({ posts, onOpen }: { posts: Post[]; onOpen: (id: string) => void }) {
+export default function MapViewImpl({ posts, onOpen, user, onAuthRequired }: {
+  posts: Post[];
+  onOpen: (id: string) => void;
+  user: { id: string; email?: string } | null;
+  onAuthRequired: () => void;
+}) {
   const box = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const onOpenRef = useRef(onOpen);
@@ -82,6 +88,12 @@ export default function MapViewImpl({ posts, onOpen }: { posts: Post[]; onOpen: 
   const [plotErr, setPlotErr] = useState("");
   const [addMode, setAddMode] = useState(false);
   const plotInputRef = useRef<HTMLInputElement>(null);
+  // Saving to a member's dashboard (Slice 3).
+  const [title, setTitle] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [savedMsg, setSavedMsg] = useState("");
+  const [myMaps, setMyMaps] = useState<SavedMap[]>([]);
+  const [mapsOpen, setMapsOpen] = useState(false);
   // Mirrors so map handlers bound once at mount read the latest values.
   const plotRef = useRef<ParsedTrack | null>(null);
   const markersRef = useRef<PlotMarker[]>([]);
@@ -201,11 +213,99 @@ export default function MapViewImpl({ posts, onOpen }: { posts: Post[]; onOpen: 
     setMarkers([]);
     setPlotErr("");
     setAddMode(false);
+    setTitle("");
   }
 
   const editMarker = (id: string, patch: Partial<PlotMarker>) =>
     setMarkers((ms) => ms.map((x) => (x.id === id ? { ...x, ...patch } : x)));
   const removeMarker = (id: string) => setMarkers((ms) => ms.filter((x) => x.id !== id));
+
+  // ── Save / load / delete member maps (Slice 3) ──────────────────────────────
+  const fitTo = (route: MapRoutePoint[][], markers: { lat: number; lng: number }[]) => {
+    const map = mapRef.current;
+    if (!map) return;
+    const b = new maplibregl.LngLatBounds();
+    for (const seg of route) for (const pt of seg) b.extend([pt.lng, pt.lat]);
+    for (const m of markers) b.extend([m.lng, m.lat]);
+    if (!b.isEmpty()) map.fitBounds(b, { padding: 80, maxZoom: 14, duration: 400 });
+  };
+
+  // Current plot → the persisted shape (only included markers travel).
+  function currentPayload() {
+    if (!plot) return null;
+    const markersOut: SavedMapMarker[] = markersRef.current
+      .filter((m) => m.include)
+      .map((m) => ({ lat: m.lat, lng: m.lng, label: m.label, poiType: m.poiType }));
+    return {
+      title: (title.trim() || plot.name || "Untitled map"),
+      route: plot.segments, markers: markersOut,
+      distanceM: plot.distanceM, gainM: plot.gainM,
+    };
+  }
+
+  const flash = (msg: string, ms = 3000) => { setSavedMsg(msg); setTimeout(() => setSavedMsg(""), ms); };
+
+  async function saveCurrentMap() {
+    const payload = currentPayload();
+    if (!payload) return;
+    if (!user) { stashPendingMap(payload); return onAuthRequired(); } // login-on-save
+    setSaving(true);
+    const saved = await saveMap(user.id, payload);
+    setSaving(false);
+    if (!saved) return flash("Couldn't save — try again.");
+    setMyMaps((ms) => [saved, ...ms]);
+    track("map_save", { props: { markers: payload.markers.length, points: payload.route.reduce((n, s) => n + s.length, 0) } });
+    flash(`Saved “${saved.title}” to your maps.`);
+  }
+
+  // Restore a saved/pending map onto the Atlas as the active plot.
+  function loadSaved(m: { title: string; route: MapRoutePoint[][]; markers: SavedMapMarker[]; distanceM: number; gainM: number }) {
+    const restored: ParsedTrack = {
+      segments: m.route, rawCount: m.route.reduce((n, s) => n + s.length, 0),
+      distanceM: m.distanceM, gainM: m.gainM, name: m.title, recordedAt: null, waypoints: [], gaps: [],
+    };
+    setAddMode(false);
+    setPlot(restored);
+    setTitle(m.title);
+    setMarkers(m.markers.map((mk) => ({ id: uid(), lat: mk.lat, lng: mk.lng, label: mk.label, poiType: mk.poiType, include: true, source: "import" as const })));
+    fitTo(m.route, m.markers);
+  }
+
+  function openMap(m: SavedMap) {
+    loadSaved(m);
+    setMapsOpen(false);
+    track("map_open", { props: { markers: m.markers.length } });
+  }
+
+  async function removeSavedMap(id: string) {
+    const ok = await deleteMap(id);
+    if (ok) { setMyMaps((ms) => ms.filter((x) => x.id !== id)); track("map_delete"); }
+  }
+
+  // Load the member's own maps (their Atlas dashboard).
+  useEffect(() => {
+    if (user) loadMyMaps(user.id).then(setMyMaps);
+    else { setMyMaps([]); setMapsOpen(false); }
+  }, [user]);
+
+  // Signed in with a plot draft waiting (Save interrupted by the magic link)?
+  // Restore it and finish the save they already asked for.
+  useEffect(() => {
+    if (!user) return;
+    const p = readPendingMap();
+    if (!p) return;
+    clearPendingMap();
+    loadSaved(p);
+    (async () => {
+      const saved = await saveMap(user.id, { title: p.title, route: p.route, markers: p.markers, distanceM: p.distanceM, gainM: p.gainM });
+      if (saved) {
+        setMyMaps((ms) => [saved, ...ms]);
+        track("map_save", { props: { restored: true, markers: p.markers.length } });
+        flash(`Signed in — saved “${saved.title}” to your maps.`, 3600);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   const geoPosts = posts.filter((p) => p.captureLat != null && p.captureLng != null);
 
@@ -306,6 +406,7 @@ export default function MapViewImpl({ posts, onOpen }: { posts: Post[]; onOpen: 
           onChange={(e) => takePlot(e.target.files?.[0])}
         />
         {plotErr && <p className="plot-err">{plotErr}</p>}
+        {savedMsg && <p className="plot-saved">{savedMsg}</p>}
         {!plot && !plotErr && (
           <p className="plot-hint">Drop a GPX or GeoJSON — we keep the rough outline plus camps, water, and points of interest.</p>
         )}
@@ -321,6 +422,13 @@ export default function MapViewImpl({ posts, onOpen }: { posts: Post[]; onOpen: 
                 {addMode ? "Click map to place…" : "Add marker"}
               </button>
               <button className="btn-sec" onClick={clearPlot}>Clear</button>
+            </div>
+            <div className="plot-save">
+              <input className="plot-title" placeholder="Name this map…" value={title}
+                onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && saveCurrentMap()} />
+              <button className="btn-upload" disabled={saving} onClick={saveCurrentMap}>
+                {saving ? "Saving…" : user ? "Save map" : "Save map (sign in)"}
+              </button>
             </div>
             <p className="plot-note">Imported lines are unverified observations — confirm on the ground, never an endorsement.</p>
             <div className="plot-cands">
@@ -339,6 +447,28 @@ export default function MapViewImpl({ posts, onOpen }: { posts: Post[]; onOpen: 
               ))}
             </div>
           </>
+        )}
+
+        {/* My maps — the member's own saved plots (their Atlas dashboard). */}
+        {user && myMaps.length > 0 && (
+          <div className="plot-maps">
+            <button className="plot-maps-toggle" onClick={() => setMapsOpen((v) => !v)}>
+              My maps ({myMaps.length}) {mapsOpen ? "▾" : "▸"}
+            </button>
+            {mapsOpen && (
+              <div className="plot-maps-list">
+                {myMaps.map((m) => (
+                  <div className="plot-map-row" key={m.id}>
+                    <button className="plot-map-open" onClick={() => openMap(m)}>
+                      <b>{m.title}</b>
+                      <span>{(m.distanceM / 1000).toFixed(1)} km · {m.markers.length} marker{m.markers.length === 1 ? "" : "s"}</span>
+                    </button>
+                    <button className="plot-cand-x" onClick={() => removeSavedMap(m.id)} aria-label="Delete map">✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         )}
       </div>
 

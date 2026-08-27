@@ -2,7 +2,7 @@
 // here so components stay declarative. Counts are tallied client-side — fine at
 // prototype scale; swap for a SQL view if data grows large.
 import { browserSupabase } from "./supabase-browser";
-import type { Annotation, Author, Comment, Post, Sighting, Track } from "./types";
+import type { Annotation, Author, Comment, PoiType, Post, Sighting, Track } from "./types";
 
 const SAMPLE = "https://photo-sphere-viewer-data.netlify.app/assets/sphere-small.jpg";
 
@@ -214,6 +214,60 @@ export async function addTrack(
     points: t.segments, distance_m: t.distanceM, gain_m: t.gainM,
     recorded_at: t.recordedAt ?? null, credit: (t.credit ?? "").slice(0, 120), credit_url: t.creditUrl || null,
   });
+  return !error;
+}
+
+// ── Maps ── member-owned plotted routes from the Atlas Plot tool (Slice 3) ───
+
+export type MapRoutePoint = { lat: number; lng: number; ele: number | null };
+export type SavedMapMarker = { lat: number; lng: number; label: string; poiType: PoiType };
+export type SavedMap = {
+  id: string;
+  ownerId: string;
+  title: string;
+  route: MapRoutePoint[][];       // simplified segments
+  markers: SavedMapMarker[];      // curated (included) markers
+  distanceM: number;
+  gainM: number;
+  createdAt: string;
+};
+
+type MapRow = {
+  id: string; owner_id: string; title: string;
+  route: MapRoutePoint[][] | null; markers: SavedMapMarker[] | null;
+  distance_m: number; gain_m: number; created_at: string;
+};
+const MAP_COLS = "id,owner_id,title,route,markers,distance_m,gain_m,created_at";
+const rowToMap = (r: MapRow): SavedMap => ({
+  id: r.id, ownerId: r.owner_id, title: r.title,
+  route: r.route ?? [], markers: r.markers ?? [],
+  distanceM: r.distance_m, gainM: r.gain_m, createdAt: r.created_at,
+});
+
+/** Persist a plotted map as the signed-in owner (RLS gates the write). */
+export async function saveMap(
+  userId: string,
+  m: { title: string; route: MapRoutePoint[][]; markers: SavedMapMarker[]; distanceM: number; gainM: number },
+): Promise<SavedMap | null> {
+  const sb = browserSupabase(); if (!sb) return null;
+  const { data, error } = await sb.from("maps").insert({
+    owner_id: userId, title: (m.title.trim() || "Untitled map").slice(0, 120),
+    route: m.route, markers: m.markers, distance_m: m.distanceM, gain_m: m.gainM,
+  }).select(MAP_COLS).single();
+  if (error || !data) return null;
+  return rowToMap(data as MapRow);
+}
+
+/** The signed-in member's own maps, newest first (their dashboard). */
+export async function loadMyMaps(userId: string): Promise<SavedMap[]> {
+  const sb = browserSupabase(); if (!sb) return [];
+  const { data } = await sb.from("maps").select(MAP_COLS).eq("owner_id", userId).order("created_at", { ascending: false });
+  return ((data as MapRow[]) ?? []).map(rowToMap);
+}
+
+export async function deleteMap(id: string): Promise<boolean> {
+  const sb = browserSupabase(); if (!sb) return false;
+  const { error } = await sb.from("maps").delete().eq("id", id);
   return !error;
 }
 

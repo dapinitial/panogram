@@ -574,6 +574,31 @@ button.stat:hover { color: var(--ink); }
 }
 .plot-cand-x { background: none; border: 0; color: var(--ink-faint); cursor: pointer; font-size: 13px; padding: 2px 4px; }
 .plot-cand-x:hover { color: var(--coral); }
+.plot-saved { color: var(--holo, #7CF5D4); font-size: 12.5px; }
+.plot-save { display: flex; gap: 8px; align-items: center; }
+.plot-title {
+  flex: 1; min-width: 0; background: rgba(6,6,11,0.4); color: var(--ink);
+  border: 1px solid var(--hair); border-radius: 8px; padding: 7px 10px; font-size: 13px;
+}
+.plot-save .btn-upload { white-space: nowrap; }
+
+/* My maps — the member's own saved plots on the Atlas */
+.plot-maps { border-top: 1px solid var(--hair); padding-top: 10px; }
+.plot-maps-toggle {
+  background: none; border: 0; color: var(--ink-dim); cursor: pointer;
+  font-family: var(--font-d); font-size: 12px; letter-spacing: 0.03em; padding: 2px 0;
+}
+.plot-maps-toggle:hover { color: var(--ink); }
+.plot-maps-list { display: grid; gap: 6px; margin-top: 8px; }
+.plot-map-row { display: flex; align-items: center; gap: 8px; }
+.plot-map-open {
+  flex: 1; min-width: 0; text-align: left; cursor: pointer;
+  display: grid; gap: 1px; padding: 7px 10px; border-radius: 10px;
+  background: var(--panel); border: 1px solid var(--hair);
+}
+.plot-map-open:hover { border-color: var(--hair-bright); }
+.plot-map-open b { color: var(--ink); font-size: 13px; font-weight: 600; }
+.plot-map-open span { color: var(--ink-faint); font-size: 11.5px; }
 .btn-sec[data-on="true"] { border-color: var(--hair-bright); color: var(--ink); background: rgba(255,205,100,0.12); }
 
 /* plot markers — amber, unverified; safety-critical gets a dashed ring */

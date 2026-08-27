@@ -13,6 +13,11 @@ const Impl = dynamic(() => import("./MapViewImpl"), {
   ),
 });
 
-export default function MapView(props: { posts: Post[]; onOpen: (id: string) => void }) {
+export default function MapView(props: {
+  posts: Post[];
+  onOpen: (id: string) => void;
+  user: { id: string; email?: string } | null;
+  onAuthRequired: () => void;
+}) {
   return <Impl {...props} />;
 }
