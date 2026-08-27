@@ -232,13 +232,18 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired }: {
   const removeMarker = (id: string) => setMarkers((ms) => ms.filter((x) => x.id !== id));
 
   // ── Save / load / delete member maps (Slice 3) ──────────────────────────────
+  // Frame the map to a route+markers. If the map isn't built yet (e.g. a plot
+  // restored on sign-in before the mount effect runs), remember it and fit once
+  // the map is ready (consumed in the mount effect below).
+  const pendingFitRef = useRef<{ route: MapRoutePoint[][]; markers: { lat: number; lng: number }[] } | null>(null);
   const fitTo = (route: MapRoutePoint[][], markers: { lat: number; lng: number }[]) => {
     const map = mapRef.current;
-    if (!map) return;
+    if (!map) { pendingFitRef.current = { route, markers }; return; }
     const b = new maplibregl.LngLatBounds();
     for (const seg of route) for (const pt of seg) b.extend([pt.lng, pt.lat]);
     for (const m of markers) b.extend([m.lng, m.lat]);
     if (!b.isEmpty()) map.fitBounds(b, { padding: 80, maxZoom: 14, duration: 400 });
+    pendingFitRef.current = null;
   };
 
   // Current plot → the persisted shape (only included markers travel).
@@ -293,28 +298,27 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired }: {
     if (ok) { setMyMaps((ms) => ms.filter((x) => x.id !== id)); track("map_delete"); }
   }
 
-  // Load the member's own maps (their Atlas dashboard).
+  // One effect owns the member's map list. On sign-in: first finish any pending
+  // save (a Save the magic link interrupted), THEN load the authoritative list —
+  // sequenced so a concurrent load can't duplicate or drop the just-saved map.
   useEffect(() => {
-    if (user) loadMyMaps(user.id).then(setMyMaps);
-    else { setMyMaps([]); setMapsOpen(false); }
-  }, [user]);
-
-  // Signed in with a plot draft waiting (Save interrupted by the magic link)?
-  // Restore it and finish the save they already asked for.
-  useEffect(() => {
-    if (!user) return;
-    const p = readPendingMap();
-    if (!p) return;
-    clearPendingMap();
-    loadSaved(p);
+    if (!user) { setMyMaps([]); setMapsOpen(false); return; }
+    let cancelled = false;
     (async () => {
-      const saved = await saveMap(user.id, { title: p.title, route: p.route, markers: p.markers, distanceM: p.distanceM, gainM: p.gainM });
-      if (saved) {
-        setMyMaps((ms) => [saved, ...ms]);
-        track("map_save", { props: { restored: true, markers: p.markers.length } });
-        flash(`Signed in — saved “${saved.title}” to your maps.`, 3600);
+      const p = readPendingMap();
+      if (p) {
+        clearPendingMap();
+        loadSaved(p);
+        const saved = await saveMap(user.id, { title: p.title, route: p.route, markers: p.markers, distanceM: p.distanceM, gainM: p.gainM });
+        if (saved) {
+          track("map_save", { props: { restored: true, markers: p.markers.length } });
+          flash(`Signed in — saved “${saved.title}” to your maps.`, 3600);
+        }
       }
+      const mine = await loadMyMaps(user.id); // includes the just-saved map
+      if (!cancelled) setMyMaps(mine);
     })();
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
@@ -337,7 +341,15 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired }: {
       const el = document.createElement("button");
       el.className = "map-pin";
       el.title = p.title;
-      el.innerHTML = `<span class="map-pin-dot" style="background:${p.author.grad}"></span><span class="map-pin-label">${p.title}</span>`;
+      // Build the DOM, don't interpolate into innerHTML — post titles/grads are
+      // user input (stored-XSS / CSS-injection vector otherwise).
+      const dot = document.createElement("span");
+      dot.className = "map-pin-dot";
+      dot.style.background = p.author.grad;
+      const lab = document.createElement("span");
+      lab.className = "map-pin-label";
+      lab.textContent = p.title;
+      el.append(dot, lab);
       el.addEventListener("click", () => {
         track("card_click", { postId: p.id, props: { from: "map" } });
         onOpenRef.current(p.id);
@@ -363,8 +375,13 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired }: {
       if (map.isStyleLoaded()) drawTracks(map);
     });
 
-    // Re-apply any existing plot (state survives this posts-remount).
-    const applyPlot = () => { drawRoute(map); syncMarkers(map); };
+    // Re-apply any existing plot (state survives this posts-remount), and honour
+    // a fit that was requested before the map existed (restore-on-sign-in).
+    const applyPlot = () => {
+      drawRoute(map); syncMarkers(map);
+      const f = pendingFitRef.current;
+      if (f) fitTo(f.route, f.markers);
+    };
     if (map.isStyleLoaded()) applyPlot(); else map.once("style.load", applyPlot);
 
     return () => { mapRef.current = null; map.remove(); };

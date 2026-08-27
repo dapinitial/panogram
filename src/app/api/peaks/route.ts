@@ -55,7 +55,10 @@ async function overpassPeaks(lat: number, lng: number): Promise<OverpassEl[] | n
       },
       body,
     }, 11000);
-    if (!data?.elements) throw new Error("overpass miss"); // reject so Promise.any skips it
+    // Treat an empty result as a miss too: an overloaded mirror often returns
+    // 200 {elements:[]}, which must NOT win the race over a mirror with real
+    // peaks (and must never be cached as a permanent "no peaks here").
+    if (!data?.elements?.length) throw new Error("overpass miss"); // reject → Promise.any skips it
     return data.elements;
   };
   try {
@@ -116,7 +119,8 @@ export async function GET(req: Request) {
   const body: PeaksResponse = { captureEle: ele?.elevation?.[0] ?? 0, peaks };
   cache.set(key, { at: Date.now(), body });
   // Persist durably (best-effort — a cache write must never fail the response).
-  if (admin) {
+  // Only cache a non-empty answer so a transient bad-empty never sticks forever.
+  if (admin && peaks.length) {
     await admin.from("peak_cache")
       .upsert({ bucket: key, capture_ele: body.captureEle, peaks, updated_at: new Date().toISOString() })
       .then(() => {}, () => {});
