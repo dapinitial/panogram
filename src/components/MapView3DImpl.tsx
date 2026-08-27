@@ -123,8 +123,8 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange }: {
       });
       const lay = { "line-cap": "round" as const, "line-join": "round" as const };
       const col = p.color ?? "#ffd24a";
-      map.addLayer({ id: "plot-route-casing", type: "line", source: "plot-route", paint: { "line-color": col, "line-width": 16, "line-opacity": 0.32, "line-blur": 8 }, layout: lay });
-      map.addLayer({ id: "plot-route", type: "line", source: "plot-route", paint: { "line-color": col, "line-width": 6, "line-opacity": 1 }, layout: lay });
+      map.addLayer({ id: "plot-route-casing", type: "line", source: "plot-route", paint: { "line-color": "#05060a", "line-width": 10, "line-opacity": 0.9 }, layout: lay });
+      map.addLayer({ id: "plot-route", type: "line", source: "plot-route", paint: { "line-color": col, "line-width": 6, "line-opacity": 1, "line-emissive-strength": 1 }, layout: lay });
     }
     p.markers.forEach((m, i) => {
       const critical = POI[m.poiType].safetyCritical;
