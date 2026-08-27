@@ -9,6 +9,18 @@ import { track } from "@/lib/telemetry";
 import { loadTracksForPosts, saveMap, loadMyMaps, deleteMap, ROUTE_COLORS, type SavedMap, type SavedMapMarker, type MapRoutePoint, type AtlasPlot } from "@/lib/db";
 import { parseGpx, trackStats, type ParsedTrack } from "@/lib/gpx";
 import { parseGeoJSON } from "@/lib/geojson";
+import { sunPosition, sunTimes } from "@/lib/sun";
+import { distanceM } from "@/lib/geo";
+
+// Destination point a given distance (m) + compass bearing (deg) from an origin.
+function destPoint(lat: number, lng: number, bearingDeg: number, distM: number): [number, number] {
+  const R = 6371000, br = (bearingDeg * Math.PI) / 180, d = distM / R;
+  const la1 = (lat * Math.PI) / 180, lo1 = (lng * Math.PI) / 180;
+  const la2 = Math.asin(Math.sin(la1) * Math.cos(d) + Math.cos(la1) * Math.sin(d) * Math.cos(br));
+  const lo2 = lo1 + Math.atan2(Math.sin(br) * Math.sin(d) * Math.cos(la1), Math.cos(d) - Math.sin(la1) * Math.sin(la2));
+  return [(lo2 * 180) / Math.PI, (la2 * 180) / Math.PI]; // [lng, lat]
+}
+const hhmm = (d: Date) => d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 import { stashPendingMap, readPendingMap, clearPendingMap } from "@/lib/plot-draft";
 
 // The Atlas: every geo-tagged capture as a pin on a world map — the "world,
@@ -112,6 +124,54 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
   const [routeColor, setRouteColor] = useState(() => sharedPlot?.color ?? "#ffd24a");
   const routeColorRef = useRef(routeColor);
   useEffect(() => { routeColorRef.current = routeColor; }, [routeColor]);
+  const [sunOn, setSunOn] = useState(false);
+  const sunOnRef = useRef(false);
+  useEffect(() => { sunOnRef.current = sunOn; }, [sunOn]);
+  const sunMarkersRef = useRef<maplibregl.Marker[]>([]);
+
+  // Sun layer: a daytime-sweep wedge + sunrise/sunset direction rays from the map
+  // centre for today — so you can see the light when planning a camp or shot.
+  function renderSun(map: maplibregl.Map) {
+    for (const id of ["sun-arc", "sun-rays"]) { if (map.getLayer(id)) map.removeLayer(id); if (map.getSource(id)) map.removeSource(id); }
+    for (const mk of sunMarkersRef.current) mk.remove();
+    sunMarkersRef.current = [];
+    if (!sunOnRef.current) return;
+    const c = map.getCenter(), lat = c.lat, lng = c.lng, now = new Date();
+    const { sunrise, sunset } = sunTimes(now, lat, lng);
+    const bb = map.getBounds();
+    const rayLen = Math.max(500, distanceM(bb.getNorth(), bb.getWest(), bb.getSouth(), bb.getEast()) * 0.22);
+    const DEG = 180 / Math.PI;
+    const span = sunset.valueOf() - sunrise.valueOf();
+    const fan: [number, number][] = [[lng, lat]];
+    for (let i = 0; i <= 36; i++) {
+      const s = sunPosition(new Date(sunrise.valueOf() + (span * i) / 36), lat, lng);
+      if (s.altitude >= 0) fan.push(destPoint(lat, lng, s.azimuth * DEG, rayLen));
+    }
+    fan.push([lng, lat]);
+    if (fan.length > 3) {
+      map.addSource("sun-arc", { type: "geojson", data: { type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [fan] } } });
+      map.addLayer({ id: "sun-arc", type: "fill", source: "sun-arc", paint: { "fill-color": "#ffcd64", "fill-opacity": 0.13 } });
+    }
+    const riseEnd = destPoint(lat, lng, sunPosition(sunrise, lat, lng).azimuth * DEG, rayLen);
+    const setEnd = destPoint(lat, lng, sunPosition(sunset, lat, lng).azimuth * DEG, rayLen);
+    map.addSource("sun-rays", { type: "geojson", data: { type: "FeatureCollection", features: [
+      { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: [[lng, lat], riseEnd] } },
+      { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: [[lng, lat], setEnd] } },
+    ] } });
+    map.addLayer({ id: "sun-rays", type: "line", source: "sun-rays", paint: { "line-color": "#ffcd64", "line-width": 2, "line-opacity": 0.75, "line-dasharray": [2, 2] }, layout: { "line-cap": "round" } });
+    const label = (pos: [number, number], text: string) => {
+      const el = document.createElement("div"); el.className = "sun-label"; el.textContent = text;
+      sunMarkersRef.current.push(new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat(pos).addTo(map));
+    };
+    label(riseEnd, `☀ ${hhmm(sunrise)}`);
+    label(setEnd, `☾ ${hhmm(sunset)}`);
+    const nw = sunPosition(now, lat, lng);
+    if (nw.altitude > 0) label(destPoint(lat, lng, nw.azimuth * DEG, rayLen * 0.78), "☀ now");
+  }
+  function toggleSun() {
+    setAddMode(false); setDrawMode(false);
+    setSunOn((v) => { if (!v) track("sun_path_view", {}); return !v; });
+  }
   // Saving to a member's dashboard (Slice 3).
   const [title, setTitle] = useState("");
   const [saving, setSaving] = useState(false);
@@ -398,6 +458,11 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
     if (map && map.isStyleLoaded()) drawRoute(map);
   }, [routeColor]);
 
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map && map.isStyleLoaded()) renderSun(map);
+  }, [sunOn]);
+
   const geoPosts = posts.filter((p) => p.captureLat != null && p.captureLng != null);
 
   useEffect(() => {
@@ -439,7 +504,8 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
     if (geoPosts.length) map.fitBounds(bounds, { padding: 80, maxZoom: 11, duration: 0 });
 
     // Line layers (tracks + plot route) die on setStyle → redraw on every load.
-    map.on("style.load", () => { drawTracks(map); drawRoute(map); drawLive(map); });
+    map.on("style.load", () => { drawTracks(map); drawRoute(map); drawLive(map); renderSun(map); });
+    map.on("moveend", () => renderSun(map)); // sun follows the spot you're looking at
     // Map clicks: extend the freehand line, else drop a marker (when armed).
     map.on("click", (e) => {
       if (drawModeRef.current) { setDrawing((d) => [...d, { lat: e.lngLat.lat, lng: e.lngLat.lng, ele: null }]); return; }
@@ -507,6 +573,7 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
           <div className="plot-head-actions">
             <button className="btn-sec" onClick={() => plotInputRef.current?.click()}>{plot ? "Replace" : "Import"}</button>
             <button className="btn-sec" data-on={drawMode} onClick={toggleDraw}>Draw</button>
+            <button className="btn-sec" data-on={sunOn} onClick={toggleSun}>Sun</button>
           </div>
         </div>
         <input

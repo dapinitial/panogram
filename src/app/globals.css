@@ -638,6 +638,11 @@ button.stat:hover { color: var(--ink); }
 .plot-cand-x { background: none; border: 0; color: var(--ink-faint); cursor: pointer; font-size: 13px; padding: 2px 4px; }
 .plot-cand-x:hover { color: var(--coral); }
 .plot-saved { color: var(--holo, #7CF5D4); font-size: 12.5px; }
+.sun-label {
+  font-family: var(--font-m); font-size: 10.5px; letter-spacing: 0.03em; white-space: nowrap;
+  color: #ffe6a0; background: rgba(6,6,11,0.8); border: 1px solid rgba(255,205,100,0.4);
+  padding: 2px 7px; border-radius: 999px; pointer-events: none;
+}
 .plot-colors { display: flex; align-items: center; gap: 6px; }
 .plot-colors-label { font-size: 11px; color: var(--ink-faint); font-family: var(--font-m); letter-spacing: 0.04em; margin-right: 2px; }
 .plot-color { width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.18); cursor: pointer; padding: 0; }
