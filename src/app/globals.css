@@ -633,6 +633,10 @@ button.stat:hover { color: var(--ink); }
 .plot-cand-x { background: none; border: 0; color: var(--ink-faint); cursor: pointer; font-size: 13px; padding: 2px 4px; }
 .plot-cand-x:hover { color: var(--coral); }
 .plot-saved { color: var(--holo, #7CF5D4); font-size: 12.5px; }
+.plot-colors { display: flex; align-items: center; gap: 6px; }
+.plot-colors-label { font-size: 11px; color: var(--ink-faint); font-family: var(--font-m); letter-spacing: 0.04em; margin-right: 2px; }
+.plot-color { width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.18); cursor: pointer; padding: 0; }
+.plot-color[data-on="true"] { box-shadow: 0 0 0 2px var(--void), 0 0 0 3px var(--ink); }
 .plot-save { display: flex; gap: 8px; align-items: center; }
 .plot-title {
   flex: 1; min-width: 0; background: rgba(6,6,11,0.4); color: var(--ink);

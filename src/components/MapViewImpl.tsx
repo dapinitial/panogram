@@ -6,7 +6,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import type { Post, Track, PoiType } from "@/lib/types";
 import { POI } from "@/lib/types";
 import { track } from "@/lib/telemetry";
-import { loadTracksForPosts, saveMap, loadMyMaps, deleteMap, type SavedMap, type SavedMapMarker, type MapRoutePoint, type AtlasPlot } from "@/lib/db";
+import { loadTracksForPosts, saveMap, loadMyMaps, deleteMap, ROUTE_COLORS, type SavedMap, type SavedMapMarker, type MapRoutePoint, type AtlasPlot } from "@/lib/db";
 import { parseGpx, trackStats, type ParsedTrack } from "@/lib/gpx";
 import { parseGeoJSON } from "@/lib/geojson";
 import { stashPendingMap, readPendingMap, clearPendingMap } from "@/lib/plot-draft";
@@ -109,6 +109,9 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
   useEffect(() => { drawModeRef.current = drawMode; }, [drawMode]);
   useEffect(() => { drawingRef.current = drawing; }, [drawing]);
   const plotInputRef = useRef<HTMLInputElement>(null);
+  const [routeColor, setRouteColor] = useState(() => sharedPlot?.color ?? "#ffd24a");
+  const routeColorRef = useRef(routeColor);
+  useEffect(() => { routeColorRef.current = routeColor; }, [routeColor]);
   // Saving to a member's dashboard (Slice 3).
   const [title, setTitle] = useState("");
   const [saving, setSaving] = useState(false);
@@ -158,7 +161,7 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
     });
     map.addLayer({
       id: "plot-route", type: "line", source: "plot-route",
-      paint: { "line-color": "#ffd24a", "line-width": 4.5, "line-opacity": 1, "line-dasharray": [2.4, 1.4] },
+      paint: { "line-color": routeColorRef.current, "line-width": 4.5, "line-opacity": 1, "line-dasharray": [2.4, 1.4] },
       layout: { "line-cap": "round", "line-join": "round" },
     });
   }
@@ -309,7 +312,7 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
     return {
       title: (title.trim() || plot.name || "Untitled map"),
       route: plot.segments, markers: markersOut,
-      distanceM: plot.distanceM, gainM: plot.gainM,
+      distanceM: plot.distanceM, gainM: plot.gainM, color: routeColor,
     };
   }
 
@@ -389,7 +392,12 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
     if (!reportedOnce.current) { reportedOnce.current = true; if (!plot && sharedPlot) return; }
     onPlotChange(currentPayload());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plot, markers, title]);
+  }, [plot, markers, title, routeColor]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map && map.isStyleLoaded()) drawRoute(map);
+  }, [routeColor]);
 
   const geoPosts = posts.filter((p) => p.captureLat != null && p.captureLng != null);
 
@@ -531,6 +539,12 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
               <button className="btn-upload" disabled={saving} onClick={saveCurrentMap}>
                 {saving ? "Saving…" : user ? "Save map" : "Save map (sign in)"}
               </button>
+            </div>
+            <div className="plot-colors">
+              <span className="plot-colors-label">Line</span>
+              {ROUTE_COLORS.map((c) => (
+                <button key={c} className="plot-color" data-on={routeColor === c} style={{ background: c }} onClick={() => setRouteColor(c)} aria-label={`Route color ${c}`} />
+              ))}
             </div>
             <p className="plot-note">Imported lines are unverified observations — confirm on the ground, never an endorsement.</p>
             <div className="plot-cands">

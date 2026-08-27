@@ -3,9 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
-import type { Post } from "@/lib/types";
+import type { Post, PoiType } from "@/lib/types";
 import { POI } from "@/lib/types";
 import type { AtlasPlot, SavedMapMarker, MapRoutePoint } from "@/lib/db";
+import { ROUTE_COLORS } from "@/lib/db";
 import { importPlotFile } from "@/lib/plot-import";
 import { trackStats } from "@/lib/gpx";
 import { track } from "@/lib/telemetry";
@@ -88,6 +89,20 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange }: {
     track("plot_import", { props: { format: res.format, markers: res.plot.markers.length, from: "3d" } });
   }
 
+  // Edit the shared plot's markers / route colour by index (rename, retype, delete).
+  const patchMarker = (i: number, patch: Partial<SavedMapMarker>) => {
+    const cur = plotRef.current; if (!cur) return;
+    onPlotChangeRef.current({ ...cur, markers: cur.markers.map((m, j) => (j === i ? { ...m, ...patch } : m)) });
+  };
+  const removeMarker = (i: number) => {
+    const cur = plotRef.current; if (!cur) return;
+    onPlotChangeRef.current({ ...cur, markers: cur.markers.filter((_, j) => j !== i) });
+  };
+  const setColor = (c: string) => {
+    const cur = plotRef.current; if (!cur) return;
+    onPlotChangeRef.current({ ...cur, color: c });
+  };
+
   const geoPosts = posts.filter((p) => p.captureLat != null && p.captureLng != null);
 
   // Draw the plotted route (draped on the terrain) + its curated markers. Amber
@@ -107,7 +122,7 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange }: {
       });
       map.addLayer({
         id: "plot-route", type: "line", source: "plot-route",
-        paint: { "line-color": "#ffd24a", "line-width": 4.5, "line-opacity": 1, "line-dasharray": [2.4, 1.4] },
+        paint: { "line-color": p.color ?? "#ffd24a", "line-width": 4.5, "line-opacity": 1, "line-dasharray": [2.4, 1.4] },
         layout: { "line-cap": "round", "line-join": "round" },
       });
     }
@@ -278,7 +293,30 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange }: {
           {drawing.length > 1 && <button className="hint-act hint-act--go" onClick={finishDraw}>✓ Finish line</button>}
         </div>
       )}
-      {!drawMode && <div className="map-3d-hint glass">Drag to orbit · scroll to zoom · right-drag to tilt</div>}
+      {plot && (plot.markers.length > 0 || plot.route.length > 0) && (
+        <div className="plot-panel glass">
+          <div className="plot-colors">
+            <span className="plot-colors-label">Line</span>
+            {ROUTE_COLORS.map((c) => (
+              <button key={c} className="plot-color" data-on={(plot.color ?? "#ffd24a") === c} style={{ background: c }} onClick={() => setColor(c)} aria-label={`Route color ${c}`} />
+            ))}
+          </div>
+          {plot.markers.length > 0 && (
+            <div className="plot-cands">
+              {plot.markers.map((m, i) => (
+                <div className="plot-cand" key={i} data-critical={POI[m.poiType].safetyCritical}>
+                  <input className="plot-cand-label" value={m.label} onChange={(e) => patchMarker(i, { label: e.target.value })} />
+                  <select value={m.poiType} onChange={(e) => patchMarker(i, { poiType: e.target.value as PoiType })}>
+                    {(Object.keys(POI) as PoiType[]).map((k) => <option key={k} value={k}>{POI[k].label}</option>)}
+                  </select>
+                  <button className="plot-cand-x" onClick={() => removeMarker(i)} aria-label="Remove marker">✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {!drawMode && !plot && <div className="map-3d-hint glass">Drag to orbit · scroll to zoom · right-drag to tilt</div>}
     </div>
   );
 }

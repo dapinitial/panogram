@@ -222,7 +222,8 @@ export async function addTrack(
 export type MapRoutePoint = { lat: number; lng: number; ele: number | null };
 export type SavedMapMarker = { lat: number; lng: number; label: string; poiType: PoiType };
 // The active plot shared between the flat + 3D Atlas engines (and the save payload).
-export type AtlasPlot = { title: string; route: MapRoutePoint[][]; markers: SavedMapMarker[]; distanceM: number; gainM: number };
+export type AtlasPlot = { title: string; route: MapRoutePoint[][]; markers: SavedMapMarker[]; distanceM: number; gainM: number; color?: string };
+export const ROUTE_COLORS = ["#ffd24a", "#57eaff", "#ff5ea8", "#a6ff3a", "#ff8a3a", "#ffffff"];
 export type SavedMap = {
   id: string;
   ownerId: string;
