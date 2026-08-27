@@ -161,8 +161,8 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
       data: { type: "Feature", properties: {}, geometry: { type: "MultiLineString", coordinates: segs.map((seg) => seg.map((pt) => [pt.lng, pt.lat])) } },
     });
     const lay = { "line-cap": "round" as const, "line-join": "round" as const };
-    map.addLayer({ id: "plot-route-casing", type: "line", source: "plot-route", paint: { "line-color": "#0a0a12", "line-width": 8, "line-opacity": 0.6 }, layout: lay });
-    map.addLayer({ id: "plot-route", type: "line", source: "plot-route", paint: { "line-color": routeColorRef.current, "line-width": 4.5, "line-opacity": 1 }, layout: lay });
+    map.addLayer({ id: "plot-route-casing", type: "line", source: "plot-route", paint: { "line-color": routeColorRef.current, "line-width": 16, "line-opacity": 0.32, "line-blur": 8 }, layout: lay });
+    map.addLayer({ id: "plot-route", type: "line", source: "plot-route", paint: { "line-color": routeColorRef.current, "line-width": 6, "line-opacity": 1 }, layout: lay });
   }
 
   // DOM markers survive setStyle, but a posts-remount rebuilds the map, so we

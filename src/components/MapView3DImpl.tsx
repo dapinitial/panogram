@@ -122,8 +122,9 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange }: {
         data: { type: "Feature", properties: {}, geometry: { type: "MultiLineString", coordinates: segs.map((seg) => seg.map((pt) => [pt.lng, pt.lat])) } },
       });
       const lay = { "line-cap": "round" as const, "line-join": "round" as const };
-      map.addLayer({ id: "plot-route-casing", type: "line", source: "plot-route", paint: { "line-color": "#0a0a12", "line-width": 8, "line-opacity": 0.6 }, layout: lay });
-      map.addLayer({ id: "plot-route", type: "line", source: "plot-route", paint: { "line-color": p.color ?? "#ffd24a", "line-width": 4.5, "line-opacity": 1 }, layout: lay });
+      const col = p.color ?? "#ffd24a";
+      map.addLayer({ id: "plot-route-casing", type: "line", source: "plot-route", paint: { "line-color": col, "line-width": 16, "line-opacity": 0.32, "line-blur": 8 }, layout: lay });
+      map.addLayer({ id: "plot-route", type: "line", source: "plot-route", paint: { "line-color": col, "line-width": 6, "line-opacity": 1 }, layout: lay });
     }
     p.markers.forEach((m, i) => {
       const critical = POI[m.poiType].safetyCritical;
