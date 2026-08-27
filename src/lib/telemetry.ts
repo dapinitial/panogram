@@ -27,6 +27,7 @@ export type EventName =
   | "map_save"
   | "map_open"
   | "map_delete"
+  | "atlas_3d"
   | "report"
   | "block"
   | "ad_impression"

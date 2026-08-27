@@ -9,6 +9,7 @@ import { loadFeed, loadMyEngagement, loadNotifications, loadMyBlocks, loadMyBloc
 import Nav, { type Tab } from "@/components/Nav";
 import Feed from "@/components/Feed";
 import MapView from "@/components/MapView";
+import MapView3D from "@/components/MapView3D";
 import { hasPendingMap } from "@/lib/plot-draft";
 import Immersive, { readPendingAnnotation } from "@/components/Immersive";
 import Upload from "@/components/Upload";
@@ -25,6 +26,7 @@ export default function Home() {
   const [following, setFollowing] = useState<Set<string>>(new Set());
   const [viewingId, setViewingId] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [atlas3D, setAtlas3D] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
   const [user, setUser] = useState<{ id: string; email?: string } | null>(null);
   const [query, setQuery] = useState("");
@@ -53,6 +55,22 @@ export default function Home() {
 
   useEffect(() => { track("view", { props: { tab } }); }, [tab]);
   useEffect(() => { setSeen(localStorage.getItem("pg_notif_seen") ?? ""); }, []);
+
+  // Ambient parallax: the atmospheric backdrop drifts slowly as you scroll, so
+  // the app reads as depth you move through, not a flat page. Honours reduced-motion.
+  useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    let raf = 0;
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        document.documentElement.style.setProperty("--parallax", String(window.scrollY * 0.12));
+        raf = 0;
+      });
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => { window.removeEventListener("scroll", onScroll); if (raf) cancelAnimationFrame(raf); };
+  }, []);
 
   // A magic-link sign-in that interrupted a Save lands back here on `/`. If a
   // draft is waiting for a loaded post, reopen that pano so Immersive can
@@ -192,8 +210,14 @@ export default function Home() {
             <header className="hero">
               <div className="eyebrow">Atlas</div>
               <h1>Every capture, <span className="gradient-text">on the map.</span></h1>
+              <div className="atlas-modes seg">
+                <button className="seg-opt" data-active={!atlas3D} onClick={() => setAtlas3D(false)}>Flat</button>
+                <button className="seg-opt" data-active={atlas3D} onClick={() => { if (!atlas3D) track("atlas_3d"); setAtlas3D(true); }}>3D</button>
+              </div>
             </header>
-            <MapView posts={posts} onOpen={setViewingId} user={user} onAuthRequired={() => setAuthOpen(true)} />
+            {atlas3D
+              ? <MapView3D posts={posts} onOpen={setViewingId} />
+              : <MapView posts={posts} onOpen={setViewingId} user={user} onAuthRequired={() => setAuthOpen(true)} />}
           </>
         )}
 

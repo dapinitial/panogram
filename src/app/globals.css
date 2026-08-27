@@ -24,10 +24,12 @@
   --r-lg: 22px;
   --nav-h: 68px;
 
-  --font-d: var(--font-display), "Space Grotesk", system-ui, sans-serif;
+  --font-d: var(--font-display), "Bricolage Grotesque", system-ui, sans-serif;
   --font-b: var(--font-body), "Inter", system-ui, sans-serif;
-  /* tabular, tight figures for data — the instrument feel */
-  --num: "Space Grotesk", var(--font-display), ui-monospace, sans-serif;
+  /* the instrument face — HUD labels, coordinates, and data readouts */
+  --font-m: var(--font-mono), "Space Mono", ui-monospace, monospace;
+  /* data figures now render monospace — the spatial-OS panel feel */
+  --num: var(--font-mono), "Space Mono", ui-monospace, monospace;
 }
 
 /* Themed tokens — dark is the default. The immersive overlay (`.imm`) re-declares
@@ -46,9 +48,9 @@
   --glow-strong: rgba(174, 242, 58, 0.9);
   --holo: #8fe9ff;                          /* secondary cool line — very sparing */
 
-  /* void — deep, cool, a whisper of violet */
-  --void: #06060c;
-  --void-2: #0b0b15;
+  /* void — deep space, cooler and darker, a whisper of violet */
+  --void: #050509;
+  --void-2: #0a0b16;
   --panel: rgba(255, 255, 255, 0.03);
   --panel-2: rgba(255, 255, 255, 0.06);
   --hair: rgba(255, 255, 255, 0.085);
@@ -81,8 +83,8 @@
   --glow-strong: rgba(101, 163, 13, 0.5);
   --holo: #0e7490;
 
-  --void: #f2f2f7;
-  --void-2: #ffffff;
+  --void: #f3f1ea;                          /* warm luminous off-white, not iOS gray */
+  --void-2: #fbfaf5;
   --panel: rgba(12, 12, 26, 0.04);
   --panel-2: rgba(12, 12, 26, 0.07);
   --hair: rgba(12, 12, 26, 0.10);
@@ -125,13 +127,19 @@ body {
    so the whole app feels like it's floating inside a sphere. */
 .backdrop {
   position: fixed;
-  inset: 0;
+  inset: -10% 0 0 0;         /* slight overscan so parallax never reveals an edge */
   z-index: -2;
   background:
-    radial-gradient(70% 55% at 50% -8%, rgba(124, 58, 237, 0.12), transparent 72%),
-    radial-gradient(40% 40% at 92% 6%, rgba(95, 226, 203, 0.05), transparent 70%),
+    radial-gradient(135% 115% at 50% 32%, transparent 50%, rgba(2, 2, 6, 0.6) 100%),   /* cinematic vignette */
+    radial-gradient(98% 64% at 50% -12%, rgba(124, 58, 237, 0.17), transparent 66%),    /* violet nebula, high */
+    radial-gradient(48% 42% at 90% 2%, rgba(95, 226, 203, 0.07), transparent 64%),      /* teal wisp, far */
+    radial-gradient(72% 56% at 6% 114%, rgba(174, 242, 58, 0.06), transparent 64%),     /* accent horizon glow, low */
+    linear-gradient(180deg, var(--void-2), var(--void) 58%),                            /* near → far depth */
     var(--void);
+  will-change: transform;
+  transform: translate3d(0, calc(var(--parallax, 0) * 1px), 0);
 }
+@media (prefers-reduced-motion: reduce) { .backdrop { transform: none; } }
 .backdrop::after {
   content: "";
   position: absolute;
@@ -143,6 +151,24 @@ body {
   -webkit-mask-image: radial-gradient(120% 90% at 50% 0%, #000 35%, transparent 78%);
   mask-image: radial-gradient(120% 90% at 50% 0%, #000 35%, transparent 78%);
   opacity: 0.7;
+}
+
+/* Light mode keeps the same atmospheric depth — a luminous sky rather than a
+   flat gray page: soft warm vignette, faint colour wisps, dark grid lines. */
+[data-theme="light"] .backdrop {
+  background:
+    radial-gradient(135% 115% at 50% 30%, transparent 58%, rgba(120, 108, 84, 0.12) 100%),
+    radial-gradient(96% 60% at 50% -10%, rgba(124, 58, 237, 0.06), transparent 70%),
+    radial-gradient(52% 46% at 90% 4%, rgba(14, 116, 144, 0.05), transparent 66%),
+    radial-gradient(70% 54% at 6% 114%, rgba(101, 163, 13, 0.05), transparent 66%),
+    linear-gradient(180deg, var(--void-2), var(--void) 60%),
+    var(--void);
+}
+[data-theme="light"] .backdrop::after {
+  background-image:
+    linear-gradient(rgba(12, 12, 26, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(12, 12, 26, 0.03) 1px, transparent 1px);
+  opacity: 0.6;
 }
 
 ::-webkit-scrollbar { width: 8px; }
@@ -165,11 +191,20 @@ body {
   -webkit-text-fill-color: transparent;
   filter: drop-shadow(0 0 22px var(--glow));
 }
+/* On the warm-white canvas the bright-lime ramp reads olive — use a richer, more
+   saturated green just for headline text (the vibrant --grad CTA fills stay). */
+:root[data-theme="light"] .gradient-text {
+  background: linear-gradient(118deg, #5b8f14, #3f6b0a 55%, #2f5207);
+  -webkit-background-clip: text;
+  background-clip: text;
+  filter: none;
+}
 .glass {
-  background: var(--panel);
+  background: var(--panel-grad), var(--panel);
   border: 1px solid var(--hair);
-  backdrop-filter: blur(22px) saturate(150%);
-  -webkit-backdrop-filter: blur(22px) saturate(150%);
+  box-shadow: var(--panel-hi);        /* inner top highlight — the refractive edge */
+  backdrop-filter: blur(26px) saturate(165%);
+  -webkit-backdrop-filter: blur(26px) saturate(165%);
 }
 
 /* LCD instrument readout — the signature: a recessed display with a glowing
@@ -520,6 +555,16 @@ button.stat:hover { color: var(--ink); }
   backdrop-filter: blur(8px);
 }
 .map-empty p { color: var(--ink-dim); font-size: 13px; line-height: 1.55; margin-top: 6px; }
+
+/* Atlas 2D/3D engine switch + the Mapbox 3D surface */
+.atlas-modes { margin-top: 16px; width: fit-content; }
+.map-3d-empty { display: grid; place-items: center; }
+.map-3d-hint {
+  position: absolute; left: 14px; bottom: 14px; padding: 8px 14px; border-radius: 999px;
+  font-family: var(--font-m); font-size: 11px; letter-spacing: 0.02em; color: var(--ink-dim);
+}
+.map-stage .mapboxgl-ctrl-attrib { background: rgba(6,6,11,0.6); color: var(--ink-faint); font-size: 10px; }
+.map-stage .mapboxgl-ctrl-attrib a { color: var(--ink-dim); }
 
 /* upload: attached GPX track chip */
 .gpx-chip {

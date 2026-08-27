@@ -1,18 +1,26 @@
 import type { Metadata } from "next";
-import { Space_Grotesk, Inter } from "next/font/google";
+import { Bricolage_Grotesque, Inter, Space_Mono } from "next/font/google";
 import "./globals.css";
 
-// Space Grotesk = geometric, slightly technical display face — reads "spatial OS".
-// Inter = clean neutral UI body. Together: modern, not the prototype's rounded Nunito.
-const display = Space_Grotesk({
+// Bricolage Grotesque = a characterful modern grotesque (optical-size variable) —
+// more personality than Space Grotesk while staying legible; carries the display.
+// Inter = clean neutral UI body. Space Mono = the instrument/HUD face: coordinates,
+// stats, and readouts render like a spatial-OS panel, not generic UI numbers.
+const display = Bricolage_Grotesque({
   variable: "--font-display",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  display: "swap",
 });
 const body = Inter({
   variable: "--font-body",
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
+});
+const mono = Space_Mono({
+  variable: "--font-mono",
+  subsets: ["latin"],
+  weight: ["400", "700"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
@@ -31,7 +39,7 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${display.variable} ${body.variable}`} suppressHydrationWarning>
+    <html lang="en" className={`${display.variable} ${body.variable} ${mono.variable}`} suppressHydrationWarning>
       {/* Browser extensions (password managers, Demoway, Grammarly…) inject
           attributes on <body> before React hydrates; suppress that one-level warning. */}
       <body suppressHydrationWarning>
