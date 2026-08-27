@@ -30,15 +30,17 @@ function rasterStyle(tiles: string[], attribution: string, tileSize = 256): mapl
   };
 }
 
-const CARTO_ATTR = `${OSM_ATTR} · © <a href="https://carto.com/attributions">CARTO</a>`;
+const ESRI_ATTR = 'Tiles © <a href="https://www.esri.com">Esri</a> · HERE, Garmin, © OpenStreetMap contributors';
 const BASEMAPS = {
+  // Esri Dark/Light Gray Canvas (same provider as Satellite, which renders cleanly —
+  // Carto's tiles download 200 but MapLibre won't paint them as WebGL textures).
   void: rasterStyle(
-    ["a", "b", "c"].map((s) => `https://${s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png`),
-    CARTO_ATTR,
+    ["https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"],
+    ESRI_ATTR,
   ),
   light: rasterStyle(
-    ["a", "b", "c"].map((s) => `https://${s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png`),
-    CARTO_ATTR,
+    ["https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}"],
+    ESRI_ATTR,
   ),
   satellite: rasterStyle(
     ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
@@ -92,7 +94,7 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
   useEffect(() => { onOpenRef.current = onOpen; });
 
   const [basemap, setBasemap] = useState<BasemapKey>(() =>
-    (typeof window !== "undefined" && (localStorage.getItem("pg_basemap") as BasemapKey)) || "void");
+    (typeof window !== "undefined" && (localStorage.getItem("pg_basemap") as BasemapKey)) || "topo");
   const tracksRef = useRef<Track[]>([]);
 
   // ── Plot state (client-only draft) ──────────────────────────────────────────
@@ -156,7 +158,7 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
     });
     map.addLayer({
       id: "plot-route", type: "line", source: "plot-route",
-      paint: { "line-color": "#ffb454", "line-width": 3, "line-opacity": 0.95, "line-dasharray": [2, 1.6] },
+      paint: { "line-color": "#ffd24a", "line-width": 4.5, "line-opacity": 1, "line-dasharray": [2.4, 1.4] },
       layout: { "line-cap": "round", "line-join": "round" },
     });
   }
@@ -178,7 +180,8 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
       lab.className = "plot-pin-label";
       lab.textContent = m.label; // textContent, not innerHTML — labels are user input
       el.append(dot, lab);
-      const mk = new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([m.lng, m.lat]).addTo(map);
+      const mk = new maplibregl.Marker({ element: el, anchor: "bottom", draggable: true }).setLngLat([m.lng, m.lat]).addTo(map);
+      mk.on("dragend", () => { const ll = mk.getLngLat(); editMarker(m.id, { lat: ll.lat, lng: ll.lng }); });
       markerObjsRef.current.push(mk);
     }
   }
@@ -394,13 +397,16 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
     if (!box.current) return;
     const map = new maplibregl.Map({
       container: box.current,
-      style: BASEMAPS[(localStorage.getItem("pg_basemap") as BasemapKey) || "void"] ?? BASEMAPS.void,
+      style: BASEMAPS[(localStorage.getItem("pg_basemap") as BasemapKey) || "topo"] ?? BASEMAPS.void,
       center: [-100, 40],
       zoom: 2.2,
       attributionControl: { compact: true },
     });
     mapRef.current = map;
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+    // The Atlas tab lays out after the map inits; a map that measured a 0-size
+    // container paints black until it's told to re-measure. Nudge it once settled.
+    const rz = setTimeout(() => map.resize(), 250);
 
     const bounds = new maplibregl.LngLatBounds();
     for (const p of geoPosts) {
@@ -451,7 +457,7 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
     };
     if (map.isStyleLoaded()) applyPlot(); else map.once("style.load", applyPlot);
 
-    return () => { mapRef.current = null; map.remove(); };
+    return () => { clearTimeout(rz); mapRef.current = null; map.remove(); };
     // Re-mounting per posts change is fine at prototype scale.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [posts.length]);

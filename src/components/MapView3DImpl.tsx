@@ -5,8 +5,9 @@ import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import type { Post } from "@/lib/types";
 import { POI } from "@/lib/types";
-import type { AtlasPlot, SavedMapMarker } from "@/lib/db";
+import type { AtlasPlot, SavedMapMarker, MapRoutePoint } from "@/lib/db";
 import { importPlotFile } from "@/lib/plot-import";
+import { trackStats } from "@/lib/gpx";
 import { track } from "@/lib/telemetry";
 
 // Mapbox base styles offered on the 3D map (dusk light preset only applies to Standard).
@@ -46,8 +47,37 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange }: {
   const [addMode, setAddMode] = useState(false);
   const addModeRef = useRef(false);
   useEffect(() => { addModeRef.current = addMode; }, [addMode]);
+  const [drawMode, setDrawMode] = useState(false);
+  const [drawing, setDrawing] = useState<MapRoutePoint[]>([]);
+  const drawModeRef = useRef(false);
+  const drawingRef = useRef<MapRoutePoint[]>([]);
+  useEffect(() => { drawModeRef.current = drawMode; }, [drawMode]);
+  useEffect(() => { drawingRef.current = drawing; }, [drawing]);
   const [err, setErr] = useState("");
   const plotInputRef = useRef<HTMLInputElement>(null);
+
+  function drawLive(map: mapboxgl.Map) {
+    if (map.getLayer("draw-line")) map.removeLayer("draw-line");
+    if (map.getSource("draw-line")) map.removeSource("draw-line");
+    const pts = drawingRef.current;
+    if (!pts.length) return;
+    map.addSource("draw-line", { type: "geojson", data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: pts.map((p) => [p.lng, p.lat]) } } });
+    map.addLayer({ id: "draw-line", type: "line", source: "draw-line", paint: { "line-color": "#aef23a", "line-width": 3, "line-opacity": 0.95 }, layout: { "line-cap": "round", "line-join": "round" } });
+  }
+
+  function finishDraw() {
+    const pts = drawing;
+    setDrawMode(false);
+    setDrawing([]);
+    if (pts.length < 2) return;
+    const cur = plotRef.current;
+    const route = cur ? [...cur.route, pts] : [pts];
+    const { distanceM, gainM } = trackStats(route);
+    onPlotChangeRef.current({ title: cur?.title ?? "Drawn route", route, markers: cur?.markers ?? [], distanceM, gainM });
+    track("route_draw", { props: { points: pts.length, source: "3d" } });
+  }
+
+  useEffect(() => { const map = mapRef.current; if (map) drawLive(map); }, [drawing]);
 
   async function takePlot(file: File | undefined) {
     if (!file) return;
@@ -77,11 +107,11 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange }: {
       });
       map.addLayer({
         id: "plot-route", type: "line", source: "plot-route",
-        paint: { "line-color": "#ffb454", "line-width": 3, "line-opacity": 0.95, "line-dasharray": [2, 1.6] },
+        paint: { "line-color": "#ffd24a", "line-width": 4.5, "line-opacity": 1, "line-dasharray": [2.4, 1.4] },
         layout: { "line-cap": "round", "line-join": "round" },
       });
     }
-    for (const m of p.markers) {
+    p.markers.forEach((m, i) => {
       const critical = POI[m.poiType].safetyCritical;
       const el = document.createElement("div");
       el.className = "plot-pin" + (critical ? " is-critical" : "");
@@ -92,8 +122,15 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange }: {
       lab.className = "plot-pin-label";
       lab.textContent = m.label;
       el.append(dot, lab);
-      plotMarkersRef.current.push(new mapboxgl.Marker({ element: el, anchor: "bottom" }).setLngLat([m.lng, m.lat]).addTo(map));
-    }
+      const mk = new mapboxgl.Marker({ element: el, anchor: "bottom", draggable: true }).setLngLat([m.lng, m.lat]).addTo(map);
+      mk.on("dragend", () => {
+        const ll = mk.getLngLat();
+        const cur = plotRef.current;
+        if (!cur) return;
+        onPlotChangeRef.current({ ...cur, markers: cur.markers.map((mm, j) => (j === i ? { ...mm, lat: ll.lat, lng: ll.lng } : mm)) });
+      });
+      plotMarkersRef.current.push(mk);
+    });
   }
 
   function fitToPlot(map: mapboxgl.Map): boolean {
@@ -122,8 +159,9 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange }: {
     mapRef.current = map;
     map.addControl(new mapboxgl.NavigationControl({ visualizePitch: true }), "top-right");
 
-    // Click the terrain to drop a marker onto the shared plot (Add-marker mode).
+    // Click the terrain to draw a line, else drop a marker (when armed).
     map.on("click", (e) => {
+      if (drawModeRef.current) { setDrawing((d) => [...d, { lat: e.lngLat.lat, lng: e.lngLat.lng, ele: null }]); return; }
       if (!addModeRef.current) return;
       const m: SavedMapMarker = { lat: e.lngLat.lat, lng: e.lngLat.lng, label: "New marker", poiType: "other" };
       const cur = plotRef.current;
@@ -152,6 +190,7 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange }: {
       }
       map.setTerrain({ source: "mapbox-dem", exaggeration: 1.5 });
       renderPlot(map); // route + markers, once the style/terrain are ready
+      drawLive(map);   // any in-progress freehand line
     });
 
     const bounds = new mapboxgl.LngLatBounds();
@@ -198,8 +237,8 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange }: {
 
   useEffect(() => {
     const map = mapRef.current;
-    if (map) map.getCanvas().style.cursor = addMode ? "crosshair" : "";
-  }, [addMode]);
+    if (map) map.getCanvas().style.cursor = (addMode || drawMode) ? "crosshair" : "";
+  }, [addMode, drawMode]);
 
   if (!TOKEN) {
     return (
@@ -225,12 +264,21 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange }: {
         </div>
         <div className="map-3d-tools">
           <button className="btn-sec" onClick={() => plotInputRef.current?.click()}>Import</button>
-          <button className="btn-sec" data-on={addMode} onClick={() => setAddMode((v) => !v)}>{addMode ? "Click terrain…" : "Add marker"}</button>
+          <button className="btn-sec" data-on={addMode} onClick={() => { setDrawMode(false); setAddMode((v) => !v); }}>{addMode ? "Click terrain…" : "Add marker"}</button>
+          <button className="btn-sec" data-on={drawMode} onClick={() => { setAddMode(false); setDrawMode((v) => { if (v) setDrawing([]); return !v; }); }}>Draw</button>
         </div>
       </div>
       <input ref={plotInputRef} type="file" hidden accept=".gpx,.geojson,.json,application/gpx+xml,application/geo+json" onChange={(e) => takePlot(e.target.files?.[0])} />
       {err && <div className="map-3d-err glass">{err}</div>}
-      <div className="map-3d-hint glass">Drag to orbit · scroll to zoom · right-drag to tilt</div>
+      {drawMode && (
+        <div className="map-draw-hud glass">
+          <span>{drawing.length === 0 ? "Click the terrain to start the line" : `${drawing.length} point${drawing.length === 1 ? "" : "s"}`}</span>
+          {drawing.length > 0 && <button className="hint-act" onClick={() => setDrawing((d) => d.slice(0, -1))}>↩ Undo</button>}
+          <button className="hint-act" onClick={() => { setDrawMode(false); setDrawing([]); }}>✕ Cancel</button>
+          {drawing.length > 1 && <button className="hint-act hint-act--go" onClick={finishDraw}>✓ Finish line</button>}
+        </div>
+      )}
+      {!drawMode && <div className="map-3d-hint glass">Drag to orbit · scroll to zoom · right-drag to tilt</div>}
     </div>
   );
 }

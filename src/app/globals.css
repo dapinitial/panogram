@@ -662,10 +662,12 @@ button.stat:hover { color: var(--ink); }
 /* plot markers — amber, unverified; safety-critical gets a dashed ring */
 .plot-pin { position: relative; display: grid; place-items: center; cursor: default; }
 .plot-pin-dot {
-  width: 13px; height: 13px; border-radius: 50%;
-  background: #ffcd64; border: 2px solid rgba(6,6,11,0.7);
-  box-shadow: 0 0 10px rgba(255,205,100,0.6), 0 2px 6px rgba(0,0,0,0.5);
+  width: 16px; height: 16px; border-radius: 50%;
+  background: #ffd24a; border: 2.5px solid rgba(6,6,11,0.85);
+  box-shadow: 0 0 14px rgba(255,210,74,0.85), 0 2px 7px rgba(0,0,0,0.6);
 }
+.plot-pin { cursor: grab; }
+.plot-pin:active { cursor: grabbing; }
 .plot-pin.is-critical .plot-pin-dot { background: transparent; border: 2px dashed #ffcd64; width: 15px; height: 15px; }
 .plot-pin-label {
   position: absolute; bottom: calc(100% + 5px); left: 50%; transform: translateX(-50%);
