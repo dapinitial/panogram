@@ -11,6 +11,7 @@ import { parseGpx, trackStats, type ParsedTrack } from "@/lib/gpx";
 import { parseGeoJSON } from "@/lib/geojson";
 import { sunPosition, sunTimes } from "@/lib/sun";
 import { distanceM } from "@/lib/geo";
+import { useIdleReveal } from "@/lib/use-idle-reveal";
 
 // Destination point a given distance (m) + compass bearing (deg) from an origin.
 function destPoint(lat: number, lng: number, bearingDeg: number, distM: number): [number, number] {
@@ -185,6 +186,9 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
   const [mapComments, setMapComments] = useState<Comment[]>([]);
   const [commentDraft, setCommentDraft] = useState("");
   const [commentBusy, setCommentBusy] = useState(false);
+  // Idle-reveal: fade the controls when the map's untouched; hold them while editing.
+  const [editing, setEditing] = useState(false);
+  const { revealed, bind } = useIdleReveal(drawMode || addMode || editing);
   // Mirrors so map handlers bound once at mount read the latest values.
   const plotRef = useRef<ParsedTrack | null>(null);
   const markersRef = useRef<PlotMarker[]>([]);
@@ -593,7 +597,8 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
   const included = markers.filter((m) => m.include).length;
 
   return (
-    <div className="map-wrap">
+    <div className="map-wrap" data-idle={!revealed} {...bind}
+      onFocusCapture={() => setEditing(true)} onBlurCapture={() => setEditing(false)}>
       <div ref={box} className="map-stage" />
       <div className="map-basemaps seg">
         {(Object.keys(BASEMAPS) as BasemapKey[]).map((k) => (

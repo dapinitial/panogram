@@ -10,6 +10,7 @@ import { ROUTE_COLORS } from "@/lib/db";
 import { importPlotFile } from "@/lib/plot-import";
 import { trackStats } from "@/lib/gpx";
 import { track } from "@/lib/telemetry";
+import { useIdleReveal } from "@/lib/use-idle-reveal";
 
 // Mapbox base styles offered on the 3D map (dusk light preset only applies to Standard).
 const STYLES = {
@@ -53,6 +54,8 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange }: {
   const drawModeRef = useRef(false);
   const drawingRef = useRef<MapRoutePoint[]>([]);
   useEffect(() => { drawModeRef.current = drawMode; }, [drawMode]);
+  const [editing, setEditing] = useState(false);
+  const { revealed, bind } = useIdleReveal(drawMode || addMode || editing);
   useEffect(() => { drawingRef.current = drawing; }, [drawing]);
   const [err, setErr] = useState("");
   const plotInputRef = useRef<HTMLInputElement>(null);
@@ -271,7 +274,8 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange }: {
   }
 
   return (
-    <div className="map-wrap">
+    <div className="map-wrap" data-idle={!revealed} {...bind}
+      onFocusCapture={() => setEditing(true)} onBlurCapture={() => setEditing(false)}>
       <div ref={box} className="map-stage" />
       <div className="map-3d-controls">
         <div className="seg map-3d-seg">

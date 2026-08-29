@@ -551,8 +551,31 @@ button.stat:hover { color: var(--ink); }
   height: min(64vh, 640px); border-radius: 18px; overflow: hidden;
   border: 1px solid var(--hair); background: #0a0a12;
 }
-.map-stage .maplibregl-ctrl-attrib { background: rgba(6,6,11,0.6); color: var(--ink-faint); font-size: 10px; }
-.map-stage .maplibregl-ctrl-attrib a { color: var(--ink-dim); }
+/* Attribution: a dark chip with bright-enough text so it reads over any basemap,
+   identically in light + dark mode (the map subtree is dark-pinned above). */
+.map-stage .maplibregl-ctrl-attrib, .map-stage .mapboxgl-ctrl-attrib {
+  background: rgba(6,6,11,0.78); color: #c3c3d2; font-size: 10px;
+}
+.map-stage .maplibregl-ctrl-attrib a, .map-stage .mapboxgl-ctrl-attrib a { color: #e4e4ef; }
+.map-stage .mapboxgl-ctrl-attrib-inner, .map-stage .mapboxgl-ctrl-attrib-inner a { color: inherit; }
+
+/* Idle-reveal: fade the overlays when the map is untouched; the hook flips
+   data-idle back the moment you move/touch/click the map surface. */
+.map-wrap .map-basemaps, .map-wrap .plot-panel, .map-wrap .map-draw-hud,
+.map-wrap .map-3d-controls, .map-wrap .map-3d-hint, .map-wrap .map-3d-err,
+.map-wrap .maplibregl-ctrl-top-right, .map-wrap .mapboxgl-ctrl-top-right {
+  transition: opacity 0.45s ease;
+}
+.map-wrap[data-idle="true"] .map-basemaps,
+.map-wrap[data-idle="true"] .plot-panel,
+.map-wrap[data-idle="true"] .map-draw-hud,
+.map-wrap[data-idle="true"] .map-3d-controls,
+.map-wrap[data-idle="true"] .map-3d-hint,
+.map-wrap[data-idle="true"] .map-3d-err,
+.map-wrap[data-idle="true"] .maplibregl-ctrl-top-right,
+.map-wrap[data-idle="true"] .mapboxgl-ctrl-top-right {
+  opacity: 0; pointer-events: none;
+}
 .map-pin { position: relative; display: grid; place-items: center; background: none; border: 0; cursor: pointer; }
 .map-pin-dot {
   width: 16px; height: 16px; border-radius: 50%;
@@ -601,8 +624,6 @@ button.stat:hover { color: var(--ink); }
 .map-3d-seg .seg-opt, .map-basemaps .seg-opt { color: var(--ink); }
 .map-3d-tools { display: flex; gap: 6px; padding: 6px; }
 .map-3d-err { position: absolute; left: 14px; bottom: 56px; padding: 8px 14px; border-radius: 10px; color: var(--coral); font-size: 12.5px; }
-.map-stage .mapboxgl-ctrl-attrib { background: rgba(6,6,11,0.6); color: var(--ink-faint); font-size: 10px; }
-.map-stage .mapboxgl-ctrl-attrib a { color: var(--ink-dim); }
 
 /* upload: attached GPX track chip */
 .gpx-chip {
