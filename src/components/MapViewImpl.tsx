@@ -3,10 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import type { Post, Track, PoiType, Comment } from "@/lib/types";
+import type { Post, Track, PoiType } from "@/lib/types";
 import { POI } from "@/lib/types";
+import MapSocial from "@/components/MapSocial";
 import { track } from "@/lib/telemetry";
-import { loadTracksForPosts, saveMap, loadMyMaps, deleteMap, loadMapSocial, toggleMapLike, loadMapComments, addMapComment, ROUTE_COLORS, type SavedMap, type SavedMapMarker, type MapRoutePoint, type AtlasPlot } from "@/lib/db";
+import { loadTracksForPosts, saveMap, loadMyMaps, deleteMap, ROUTE_COLORS, type SavedMap, type SavedMapMarker, type MapRoutePoint, type AtlasPlot } from "@/lib/db";
 import { parseGpx, trackStats, type ParsedTrack } from "@/lib/gpx";
 import { parseGeoJSON } from "@/lib/geojson";
 import { sunPosition, sunTimes } from "@/lib/sun";
@@ -180,12 +181,7 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
   const [myMaps, setMyMaps] = useState<SavedMap[]>([]);
   const [mapsOpen, setMapsOpen] = useState(false);
   // Social on the currently-open SAVED map (needs an id — a fresh draft has none).
-  const [openMapId, setOpenMapId] = useState<string | null>(null);
-  const [mapLikes, setMapLikes] = useState(0);
-  const [mapLiked, setMapLiked] = useState(false);
-  const [mapComments, setMapComments] = useState<Comment[]>([]);
-  const [commentDraft, setCommentDraft] = useState("");
-  const [commentBusy, setCommentBusy] = useState(false);
+  const [openMapId, setOpenMapId] = useState<string | null>(sharedPlot?.id ?? null);
   // Idle-reveal: fade the controls when the map's untouched; hold them while editing.
   const [editing, setEditing] = useState(false);
   const { revealed, bind } = useIdleReveal(drawMode || addMode || editing);
@@ -314,7 +310,6 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
     setDrawing([]);
     setTitle("");
     setOpenMapId(null); // leaving a saved map — drop its social thread
-    setMapComments([]); setCommentDraft("");
   }
 
   const editMarker = (id: string, patch: Partial<PlotMarker>) =>
@@ -387,6 +382,7 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
       title: (title.trim() || plot.name || "Untitled map"),
       route: plot.segments, markers: markersOut,
       distanceM: plot.distanceM, gainM: plot.gainM, color: routeColor,
+      id: openMapId ?? undefined, // carries the saved-map id to the 3D engine for social
     };
   }
 
@@ -401,6 +397,7 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
     setSaving(false);
     if (!saved) return flash("Couldn't save — try again.");
     setMyMaps((ms) => [saved, ...ms]);
+    setOpenMapId(saved.id); // the just-saved map is now the open one → its social thread shows
     track("map_save", { props: { markers: payload.markers.length, points: payload.route.reduce((n, s) => n + s.length, 0) } });
     flash(`Saved “${saved.title}” to your maps.`);
   }
@@ -422,32 +419,7 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
     loadSaved(m);
     setMapsOpen(false);
     setOpenMapId(m.id);
-    setCommentDraft("");
-    setMapLikes(0); setMapLiked(false); setMapComments([]);
-    (async () => {
-      const [social, comments] = await Promise.all([loadMapSocial(m.id, user?.id), loadMapComments(m.id)]);
-      setMapLikes(social.likes); setMapLiked(social.liked); setMapComments(comments);
-    })();
     track("map_open", { props: { markers: m.markers.length } });
-  }
-
-  async function toggleMapLikeUI() {
-    if (!openMapId) return;
-    if (!user) return onAuthRequired();
-    const next = !mapLiked;
-    setMapLiked(next); setMapLikes((n) => n + (next ? 1 : -1)); // optimistic
-    await toggleMapLike(openMapId, user.id, next);
-    track(next ? "map_like" : "map_unlike");
-  }
-
-  async function submitMapComment() {
-    const body = commentDraft.trim();
-    if (!openMapId || !body) return;
-    if (!user) return onAuthRequired();
-    setCommentBusy(true);
-    const added = await addMapComment(openMapId, user.id, body.slice(0, 1000));
-    setCommentBusy(false);
-    if (added) { setMapComments((cs) => [...cs, added]); setCommentDraft(""); track("map_comment"); }
   }
 
   async function removeSavedMap(id: string) {
@@ -674,38 +646,7 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
         )}
 
         {/* Social on the open saved map — likes + a comment thread (public-read). */}
-        {openMapId && (
-          <div className="map-social">
-            <div className="map-social-head">
-              <button className="map-like" data-on={mapLiked} onClick={toggleMapLikeUI} aria-pressed={mapLiked}>
-                <span className="map-like-heart">{mapLiked ? "♥" : "♡"}</span>
-                <span>{mapLikes}</span>
-              </button>
-              <span className="map-social-label">{mapComments.length} comment{mapComments.length === 1 ? "" : "s"}</span>
-            </div>
-            <div className="map-comments">
-              {mapComments.map((c) => (
-                <div className="map-comment" key={c.id}>
-                  <span className="map-comment-grad" style={{ background: c.author.grad }} aria-hidden />
-                  <div className="map-comment-body">
-                    <b>@{c.author.handle}</b>
-                    <span>{c.body}</span>
-                  </div>
-                </div>
-              ))}
-              {mapComments.length === 0 && <p className="plot-hint">No comments yet — start the thread.</p>}
-            </div>
-            <div className="map-comment-add">
-              <input className="plot-title" placeholder={user ? "Add a comment…" : "Sign in to comment…"}
-                value={commentDraft} maxLength={1000}
-                onChange={(e) => setCommentDraft(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && submitMapComment()} />
-              <button className="btn-sec" disabled={commentBusy || !commentDraft.trim()} onClick={submitMapComment}>
-                {commentBusy ? "…" : "Post"}
-              </button>
-            </div>
-          </div>
-        )}
+        {openMapId && <MapSocial key={openMapId} mapId={openMapId} user={user} onAuthRequired={onAuthRequired} />}
 
         {/* My maps — the member's own saved plots (their Atlas dashboard). */}
         {user && myMaps.length > 0 && (

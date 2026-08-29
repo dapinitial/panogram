@@ -20,6 +20,8 @@ export default function MapView3D(props: {
   onOpen: (id: string) => void;
   plot: AtlasPlot | null;
   onPlotChange: (p: AtlasPlot | null) => void;
+  user: { id: string; email?: string } | null;
+  onAuthRequired: () => void;
 }) {
   return <Impl {...props} />;
 }

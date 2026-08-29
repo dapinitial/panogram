@@ -11,6 +11,19 @@ import { importPlotFile } from "@/lib/plot-import";
 import { trackStats } from "@/lib/gpx";
 import { track } from "@/lib/telemetry";
 import { useIdleReveal } from "@/lib/use-idle-reveal";
+import MapSocial from "@/components/MapSocial";
+import { sunPosition, sunTimes } from "@/lib/sun";
+import { distanceM } from "@/lib/geo";
+
+// Destination point a distance (m) + compass bearing (deg) from an origin (haversine).
+function destPoint(lat: number, lng: number, bearingDeg: number, distM: number): [number, number] {
+  const R = 6371000, br = (bearingDeg * Math.PI) / 180, d = distM / R;
+  const la1 = (lat * Math.PI) / 180, lo1 = (lng * Math.PI) / 180;
+  const la2 = Math.asin(Math.sin(la1) * Math.cos(d) + Math.cos(la1) * Math.sin(d) * Math.cos(br));
+  const lo2 = lo1 + Math.atan2(Math.sin(br) * Math.sin(d) * Math.cos(la1), Math.cos(d) - Math.sin(la1) * Math.sin(la2));
+  return [(lo2 * 180) / Math.PI, (la2 * 180) / Math.PI];
+}
+const hhmm = (d: Date) => d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 // Mapbox base styles offered on the 3D map (dusk light preset only applies to Standard).
 const STYLES = {
@@ -29,11 +42,13 @@ const uid = () => Math.random().toString(36).slice(2);
 
 const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 
-export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange }: {
+export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange, user, onAuthRequired }: {
   posts: Post[];
   onOpen: (id: string) => void;
   plot: AtlasPlot | null;
   onPlotChange: (p: AtlasPlot | null) => void;
+  user: { id: string; email?: string } | null;
+  onAuthRequired: () => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -56,6 +71,12 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange }: {
   useEffect(() => { drawModeRef.current = drawMode; }, [drawMode]);
   const [editing, setEditing] = useState(false);
   const { revealed, bind } = useIdleReveal(drawMode || addMode || editing);
+  const [sunOn, setSunOn] = useState(false);
+  const sunOnRef = useRef(false);
+  useEffect(() => { sunOnRef.current = sunOn; }, [sunOn]);
+  const sunMarkersRef = useRef<mapboxgl.Marker[]>([]);
+  const [flatView, setFlatView] = useState(false);       // compass toggle: 3D tilt ↔ top-down north
+  const tiltRef = useRef<{ bearing: number; pitch: number }>({ bearing: -18, pitch: 62 });
   useEffect(() => { drawingRef.current = drawing; }, [drawing]);
   const [err, setErr] = useState("");
   const plotInputRef = useRef<HTMLInputElement>(null);
@@ -153,6 +174,64 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange }: {
     });
   }
 
+  // Sun layer (ported from the flat Atlas): a daytime-sweep wedge + sunrise/sunset
+  // rays from the map centre for today. emissive-strength keeps it lit under dusk.
+  function renderSun(map: mapboxgl.Map) {
+    for (const id of ["sun-arc", "sun-rays"]) { if (map.getLayer(id)) map.removeLayer(id); if (map.getSource(id)) map.removeSource(id); }
+    for (const mk of sunMarkersRef.current) mk.remove();
+    sunMarkersRef.current = [];
+    if (!sunOnRef.current) return;
+    const c = map.getCenter(), lat = c.lat, lng = c.lng, now = new Date();
+    const { sunrise, sunset } = sunTimes(now, lat, lng);
+    const bb = map.getBounds();
+    if (!bb) return;
+    const rayLen = Math.max(500, distanceM(bb.getNorth(), bb.getWest(), bb.getSouth(), bb.getEast()) * 0.22);
+    const DEG = 180 / Math.PI;
+    const span = sunset.valueOf() - sunrise.valueOf();
+    const fan: [number, number][] = [[lng, lat]];
+    for (let i = 0; i <= 36; i++) {
+      const s = sunPosition(new Date(sunrise.valueOf() + (span * i) / 36), lat, lng);
+      if (s.altitude >= 0) fan.push(destPoint(lat, lng, s.azimuth * DEG, rayLen));
+    }
+    fan.push([lng, lat]);
+    if (fan.length > 3) {
+      map.addSource("sun-arc", { type: "geojson", data: { type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [fan] } } });
+      map.addLayer({ id: "sun-arc", type: "fill", source: "sun-arc", paint: { "fill-color": "#ffcd64", "fill-opacity": 0.15, "fill-emissive-strength": 0.9 } });
+    }
+    const riseEnd = destPoint(lat, lng, sunPosition(sunrise, lat, lng).azimuth * DEG, rayLen);
+    const setEnd = destPoint(lat, lng, sunPosition(sunset, lat, lng).azimuth * DEG, rayLen);
+    map.addSource("sun-rays", { type: "geojson", data: { type: "FeatureCollection", features: [
+      { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: [[lng, lat], riseEnd] } },
+      { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: [[lng, lat], setEnd] } },
+    ] } });
+    map.addLayer({ id: "sun-rays", type: "line", source: "sun-rays", paint: { "line-color": "#ffcd64", "line-width": 2, "line-opacity": 0.85, "line-dasharray": [2, 2], "line-emissive-strength": 1 }, layout: { "line-cap": "round" } });
+    const label = (pos: [number, number], text: string) => {
+      const el = document.createElement("div"); el.className = "sun-label"; el.textContent = text;
+      sunMarkersRef.current.push(new mapboxgl.Marker({ element: el, anchor: "center" }).setLngLat(pos).addTo(map));
+    };
+    label(riseEnd, `☀ ${hhmm(sunrise)}`);
+    label(setEnd, `☾ ${hhmm(sunset)}`);
+    const nw = sunPosition(now, lat, lng);
+    if (nw.altitude > 0) label(destPoint(lat, lng, nw.azimuth * DEG, rayLen * 0.78), "☀ now");
+  }
+  function toggleSun() {
+    setAddMode(false); setDrawMode(false);
+    setSunOn((v) => { if (!v) track("sun_path_view", { props: { from: "3d" } }); return !v; });
+  }
+
+  // Compass as a real toggle: flatten to top-down north, then restore the prior tilt.
+  function toggleView() {
+    const map = mapRef.current; if (!map) return;
+    if (map.getPitch() > 2 || Math.abs(map.getBearing()) > 0.5) {
+      tiltRef.current = { bearing: map.getBearing(), pitch: map.getPitch() };
+      map.easeTo({ pitch: 0, bearing: 0, duration: 600 });
+      setFlatView(true);
+    } else {
+      map.easeTo({ ...tiltRef.current, duration: 600 });
+      setFlatView(false);
+    }
+  }
+
   function fitToPlot(map: mapboxgl.Map): boolean {
     const p = plotRef.current;
     if (!p) return false;
@@ -177,7 +256,7 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange }: {
       attributionControl: true,
     });
     mapRef.current = map;
-    map.addControl(new mapboxgl.NavigationControl({ visualizePitch: true }), "top-right");
+    map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), "top-right"); // compass → our own toggle
 
     // Click the terrain to draw a line, else drop a marker (when armed).
     map.on("click", (e) => {
@@ -211,6 +290,13 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange }: {
       map.setTerrain({ source: "mapbox-dem", exaggeration: 1.5 });
       renderPlot(map); // route + markers, once the style/terrain are ready
       drawLive(map);   // any in-progress freehand line
+      renderSun(map);  // sun wedge + rays, if toggled on
+    });
+
+    // Sun follows the spot you're framing; keep the compass toggle's label in sync.
+    map.on("moveend", () => {
+      renderSun(map);
+      setFlatView(map.getPitch() < 2 && Math.abs(map.getBearing()) < 0.5);
     });
 
     const bounds = new mapboxgl.LngLatBounds();
@@ -247,6 +333,12 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange }: {
     if (map.isStyleLoaded()) go(); else map.once("style.load", go);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plot]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map && map.isStyleLoaded()) renderSun(map);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sunOn]);
 
   // Switch Mapbox base style (terrain + plot re-apply on the style.load handler).
   const styleInit = useRef(true);
@@ -287,6 +379,8 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange }: {
           <button className="btn-sec" onClick={() => plotInputRef.current?.click()}>Import</button>
           <button className="btn-sec" data-on={addMode} onClick={() => { setDrawMode(false); setAddMode((v) => !v); }}>{addMode ? "Click terrain…" : "Add marker"}</button>
           <button className="btn-sec" data-on={drawMode} onClick={() => { setAddMode(false); setDrawMode((v) => { if (v) setDrawing([]); return !v; }); }}>Draw</button>
+          <button className="btn-sec" data-on={sunOn} onClick={toggleSun}>Sun</button>
+          <button className="btn-sec" onClick={toggleView} title={flatView ? "Tilt back to 3D" : "Flatten to top-down north"}>{flatView ? "3D view" : "Top-down"}</button>
         </div>
       </div>
       <input ref={plotInputRef} type="file" hidden accept=".gpx,.geojson,.json,application/gpx+xml,application/geo+json" onChange={(e) => takePlot(e.target.files?.[0])} />
@@ -320,6 +414,8 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange }: {
               ))}
             </div>
           )}
+          {/* Likes + comments — shows when a SAVED map is open (id rides the shared plot). */}
+          {plot.id && <MapSocial key={plot.id} mapId={plot.id} user={user} onAuthRequired={onAuthRequired} />}
         </div>
       )}
       {!drawMode && !plot && <div className="map-3d-hint glass">Drag to orbit · scroll to zoom · right-drag to tilt</div>}
