@@ -526,7 +526,27 @@ button.stat:hover { color: var(--ink); }
 .pg-marker--peak .pg-marker-label { opacity: 0.92; border-color: rgba(255,255,255,0.25); }
 
 /* ── the Atlas (MapLibre) ───────────────────────────────────────────────── */
-.map-wrap { position: relative; margin-top: 8px; }
+.map-wrap {
+  position: relative; margin-top: 8px;
+  /* The Atlas controls float over map imagery, so they always wear the dark-glass
+     look — pin every token the overlays use to its dark value so light mode does
+     NOT flip the chips/buttons/plot UI. Readable + consistent in both themes. */
+  --accent: #aef23a;
+  --accent-soft: rgba(174, 242, 58, 0.13);
+  --accent-line: rgba(174, 242, 58, 0.5);
+  --glow: rgba(174, 242, 58, 0.55);
+  --holo: #8fe9ff;
+  --void-2: #0a0b16;
+  --panel: rgba(255, 255, 255, 0.03);
+  --panel-2: rgba(255, 255, 255, 0.06);
+  --hair: rgba(255, 255, 255, 0.085);
+  --hair-bright: rgba(255, 255, 255, 0.17);
+  --panel-grad: linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.012) 42%, rgba(255,255,255,0));
+  --panel-hi: inset 0 1px 0 0 rgba(255,255,255,0.07);
+  --ink: #f4f4fb;
+  --ink-dim: #9595b0;
+  --ink-faint: #57576f;
+}
 .map-stage {
   height: min(64vh, 640px); border-radius: 18px; overflow: hidden;
   border: 1px solid var(--hair); background: #0a0a12;
