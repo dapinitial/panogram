@@ -274,6 +274,39 @@ export async function deleteMap(id: string): Promise<boolean> {
   return !error;
 }
 
+// ── Map social (likes + comments on saved maps) ─────────────────────────────
+/** Like count + whether this user has liked, in one round-trip. */
+export async function loadMapSocial(mapId: string, userId?: string): Promise<{ likes: number; liked: boolean }> {
+  const sb = browserSupabase(); if (!sb) return { likes: 0, liked: false };
+  const [{ count }, mine] = await Promise.all([
+    sb.from("map_likes").select("map_id", { count: "exact", head: true }).eq("map_id", mapId),
+    userId ? sb.from("map_likes").select("map_id").eq("map_id", mapId).eq("user_id", userId).maybeSingle() : Promise.resolve({ data: null }),
+  ]);
+  return { likes: count ?? 0, liked: !!(mine as { data: unknown }).data };
+}
+
+export async function toggleMapLike(mapId: string, userId: string, on: boolean) {
+  const sb = browserSupabase(); if (!sb) return;
+  if (on) await sb.from("map_likes").insert({ map_id: mapId, user_id: userId });
+  else await sb.from("map_likes").delete().eq("map_id", mapId).eq("user_id", userId);
+}
+
+export async function loadMapComments(mapId: string, blocked?: Set<string>): Promise<Comment[]> {
+  const sb = browserSupabase(); if (!sb) return [];
+  const { data } = await sb.from("map_comments").select("id,user_id,body,created_at,profiles(handle,avatar_grad)").eq("map_id", mapId).order("created_at", { ascending: true });
+  let rows = (data as unknown as { id: string; user_id: string; body: string; created_at: string; profiles: ProfileEmbed }[]) ?? [];
+  if (blocked?.size) rows = rows.filter((r) => !blocked.has(r.user_id));
+  return rows.map((r) => ({ id: r.id, body: r.body, createdAt: r.created_at, author: authorOf(r.profiles) }));
+}
+
+export async function addMapComment(mapId: string, userId: string, body: string): Promise<Comment | null> {
+  const sb = browserSupabase(); if (!sb) return null;
+  const { data, error } = await sb.from("map_comments").insert({ map_id: mapId, user_id: userId, body }).select("id,body,created_at,profiles(handle,avatar_grad)").single();
+  if (error || !data) return null;
+  const r = data as unknown as { id: string; body: string; created_at: string; profiles: ProfileEmbed };
+  return { id: r.id, body: r.body, createdAt: r.created_at, author: authorOf(r.profiles) };
+}
+
 // ── Trust & safety ──────────────────────────────────────────────────────────
 
 /** Who the current user has blocked (their content is filtered out everywhere). */
