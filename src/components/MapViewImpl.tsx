@@ -106,7 +106,7 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
   useEffect(() => { onOpenRef.current = onOpen; });
 
   const [basemap, setBasemap] = useState<BasemapKey>(() =>
-    (typeof window !== "undefined" && (localStorage.getItem("pg_basemap") as BasemapKey)) || "topo");
+    (typeof window !== "undefined" && (localStorage.getItem("pg_basemap") as BasemapKey)) || "satellite");
   const tracksRef = useRef<Track[]>([]);
 
   // ── Plot state (client-only draft) ──────────────────────────────────────────
@@ -221,8 +221,10 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
       data: { type: "Feature", properties: {}, geometry: { type: "MultiLineString", coordinates: segs.map((seg) => seg.map((pt) => [pt.lng, pt.lat])) } },
     });
     const lay = { "line-cap": "round" as const, "line-join": "round" as const };
-    map.addLayer({ id: "plot-route-casing", type: "line", source: "plot-route", paint: { "line-color": "#05060a", "line-width": 10, "line-opacity": 0.9 }, layout: lay });
-    map.addLayer({ id: "plot-route", type: "line", source: "plot-route", paint: { "line-color": routeColorRef.current, "line-width": 6, "line-opacity": 1 }, layout: lay });
+    // Thin dark edge for contrast on light basemaps — NOT a heavy black border
+    // that swallows the colour (that reads as a dim tone). The bright core is the star.
+    map.addLayer({ id: "plot-route-casing", type: "line", source: "plot-route", paint: { "line-color": "#05060a", "line-width": 9, "line-opacity": 0.5 }, layout: lay });
+    map.addLayer({ id: "plot-route", type: "line", source: "plot-route", paint: { "line-color": routeColorRef.current, "line-width": 7, "line-opacity": 0.84 }, layout: lay });
   }
 
   // DOM markers survive setStyle, but a posts-remount rebuilds the map, so we
@@ -469,7 +471,7 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
     if (!box.current) return;
     const map = new maplibregl.Map({
       container: box.current,
-      style: BASEMAPS[(localStorage.getItem("pg_basemap") as BasemapKey) || "topo"] ?? BASEMAPS.void,
+      style: BASEMAPS[(localStorage.getItem("pg_basemap") as BasemapKey) || "satellite"] ?? BASEMAPS.satellite,
       center: [-100, 40],
       zoom: 2.2,
       attributionControl: { compact: true },
