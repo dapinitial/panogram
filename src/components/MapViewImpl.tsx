@@ -317,7 +317,7 @@ export default function MapViewImpl({ posts, onOpen, user, onAuthRequired, plot:
     map.addSource("draw-line", { type: "geojson", data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: pts.map((p) => [p.lng, p.lat]) } } });
     map.addLayer({
       id: "draw-line", type: "line", source: "draw-line",
-      paint: { "line-color": "#aef23a", "line-width": 3, "line-opacity": 0.95 },
+      paint: { "line-color": "#c6ff2e", "line-width": 6, "line-opacity": 1 },
       layout: { "line-cap": "round", "line-join": "round" },
     });
   }

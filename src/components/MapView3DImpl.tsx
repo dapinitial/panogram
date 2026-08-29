@@ -63,7 +63,8 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange }: {
     const pts = drawingRef.current;
     if (!pts.length) return;
     map.addSource("draw-line", { type: "geojson", data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: pts.map((p) => [p.lng, p.lat]) } } });
-    map.addLayer({ id: "draw-line", type: "line", source: "draw-line", paint: { "line-color": "#aef23a", "line-width": 3, "line-opacity": 0.95 }, layout: { "line-cap": "round", "line-join": "round" } });
+    // emissive-strength self-lights the preview so the dusk lighting can't darken it into a faint tone.
+    map.addLayer({ id: "draw-line", type: "line", source: "draw-line", paint: { "line-color": "#c6ff2e", "line-width": 6, "line-opacity": 1, "line-emissive-strength": 1 }, layout: { "line-cap": "round", "line-join": "round" } });
   }
 
   function finishDraw() {
