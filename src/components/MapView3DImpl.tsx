@@ -76,6 +76,7 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange, user,
   useEffect(() => { sunOnRef.current = sunOn; }, [sunOn]);
   const sunMarkersRef = useRef<mapboxgl.Marker[]>([]);
   const [flatView, setFlatView] = useState(false);       // compass toggle: 3D tilt ↔ top-down north
+  const [isTouch] = useState(() => typeof window !== "undefined" && !!window.matchMedia?.("(hover: none), (pointer: coarse)").matches);
   const tiltRef = useRef<{ bearing: number; pitch: number }>({ bearing: -18, pitch: 62 });
   useEffect(() => { drawingRef.current = drawing; }, [drawing]);
   const [err, setErr] = useState("");
@@ -254,8 +255,12 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange, user,
       pitch: 55,
       projection: { name: "globe" },
       attributionControl: true,
+      touchPitch: true,        // two-finger vertical drag tilts on touch (default, made explicit)
+      pitchWithRotate: true,
     });
     mapRef.current = map;
+    map.touchZoomRotate.enable();
+    map.touchPitch.enable();   // belt-and-suspenders so touch tilt is always available
     map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), "top-right"); // compass → our own toggle
 
     // Click the terrain to draw a line, else drop a marker (when armed).
@@ -418,7 +423,13 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange, user,
           {plot.id && <MapSocial key={plot.id} mapId={plot.id} user={user} onAuthRequired={onAuthRequired} />}
         </div>
       )}
-      {!drawMode && !plot && <div className="map-3d-hint glass">Drag to orbit · scroll to zoom · right-drag to tilt</div>}
+      {!drawMode && !plot && (
+        <div className="map-3d-hint glass">
+          {isTouch
+            ? "Drag to pan · pinch to zoom · two-finger drag up/down to tilt — or tap Top-down/3D"
+            : "Drag to orbit · scroll to zoom · right-drag to tilt — or use Top-down/3D"}
+        </div>
+      )}
     </div>
   );
 }
