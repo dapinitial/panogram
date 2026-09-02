@@ -121,20 +121,24 @@ export function flyTour(map: MbMap, path: TourPoint[], opts: TourOpts = {}): Tou
     for (const h of io) h?.disable?.();
 
     const start = at(0), startBearing = headingAt(0);
-    const runMs = clamp(runEnd * 1.6, 13000, 30000); // slower, cinematic; scaled to the climb
+    const runMs = clamp(runEnd * 2.1, 16000, 38000); // slow, cinematic climb; scaled to the ascent
 
     try {
-      // 1 — ESTABLISH: rise to a wide orbital birdseye over the trailhead.
+      // 0 — SPACE: the whole Earth from orbit (globe + atmosphere + stars), a beat
+      // to register the planet, then a long descent toward the region.
       setPreset("dawn");
-      await move({ center: [start.lng, start.lat], zoom: 11, pitch: 42, bearing: startBearing - 35 }, 2800);
+      map.jumpTo({ center: [start.lng, start.lat], zoom: 1.5, pitch: 0, bearing: 0 });
+      await animate(1200, () => {}); // hold on the planet
+      if (cancelled) return;
+      await move({ center: [start.lng, start.lat], zoom: 10.5, pitch: 45, bearing: startBearing - 35 }, 5400);
       if (cancelled) return;
 
-      // 2 — APPROACH: descend onto the trailhead, settling into the run pose so
+      // 1 — APPROACH: descend onto the trailhead, settling into the run pose so
       // the trail run begins without a snap.
-      await move({ center: [start.lng, start.lat], zoom: RUN_ZOOM, pitch: RUN_PITCH, bearing: startBearing }, 2800);
+      await move({ center: [start.lng, start.lat], zoom: RUN_ZOOM, pitch: RUN_PITCH, bearing: startBearing }, 3000);
       if (cancelled) return;
 
-      // 3 — TRAIL RUN: climb to the summit. Heading is low-passed so the camera
+      // 2 — TRAIL RUN: climb to the summit. Heading is low-passed so the camera
       // banks smoothly through switchbacks; distance is eased in and out.
       let curBearing = startBearing;
       await animate(runMs, (p) => {
@@ -153,12 +157,12 @@ export function flyTour(map: MbMap, path: TourPoint[], opts: TourOpts = {}): Tou
       });
       if (cancelled) return;
 
-      // 4 — ARRIVAL: a short beat settling onto the summit before the reveal.
+      // 3 — ARRIVAL: a short beat settling onto the summit before the reveal.
       setPreset("dusk");
       await move({ center: [hi.lng, hi.lat], zoom: RUN_ZOOM + 0.3, pitch: 60, bearing: curBearing }, 1100);
       if (cancelled) return;
 
-      // 5 — SUMMIT CELEBRATION: a slow FULL orbit that pulls back to reveal the massif.
+      // 4 — SUMMIT CELEBRATION: a slow FULL orbit that pulls back to reveal the massif.
       const orbitFrom = map.getBearing();
       await animate(11000, (p) => {
         const e = easeInOut(p);
