@@ -26,6 +26,14 @@ export async function proxy(request: NextRequest) {
 
   // Touch the session so expired tokens refresh into the response cookies.
   await supabase.auth.getUser();
+
+  // The /embed pages are meant to be iframed on external sites (kafadventures.com
+  // etc.), so allow cross-origin framing there — and only there. Everything else
+  // stays same-origin-only (no X-Frame-Options set = browser default).
+  if (request.nextUrl.pathname.startsWith("/embed")) {
+    response.headers.set("Content-Security-Policy", "frame-ancestors *");
+    response.headers.delete("X-Frame-Options");
+  }
   return response;
 }
 

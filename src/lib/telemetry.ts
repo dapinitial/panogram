@@ -31,6 +31,7 @@ export type EventName =
   | "map_unlike"
   | "map_comment"
   | "map_tour_play"
+  | "trip_save"
   | "atlas_3d"
   | "report"
   | "block"

@@ -274,6 +274,94 @@ export async function deleteMap(id: string): Promise<boolean> {
   return !error;
 }
 
+// ── Trips (editor-curated, embeddable 3D fly-by routes) ─────────────────────
+// Distinct from member `maps`: trips are curated content managed in the Trips
+// CMS (/studio) and embedded white-label on external sites via /embed/<slug>.
+export type Trip = {
+  id: string; slug: string; title: string; region: string;
+  route: MapRoutePoint[][]; markers: SavedMapMarker[];
+  color: string; summitM: number | null; distanceM: number; gainM: number;
+  autoplay: boolean; published: boolean; createdAt: string;
+};
+type TripRow = {
+  id: string; slug: string; title: string; region: string;
+  route: MapRoutePoint[][] | null; markers: SavedMapMarker[] | null;
+  color: string; summit_m: number | null; distance_m: number; gain_m: number;
+  autoplay: boolean; published: boolean; created_at: string;
+};
+const TRIP_COLS = "id,slug,title,region,route,markers,color,summit_m,distance_m,gain_m,autoplay,published,created_at";
+export const tripRowToTrip = (r: TripRow): Trip => ({
+  id: r.id, slug: r.slug, title: r.title, region: r.region,
+  route: r.route ?? [], markers: r.markers ?? [],
+  color: r.color, summitM: r.summit_m, distanceM: r.distance_m, gainM: r.gain_m,
+  autoplay: r.autoplay, published: r.published, createdAt: r.created_at,
+});
+
+/** URL-safe slug from a title (a-z 0-9 dashes). */
+export function slugify(s: string): string {
+  return s.toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "trip";
+}
+
+/** Can the signed-in user manage trips? (is_admin OR can_manage_trips flag.) */
+export async function canManageTrips(userId: string): Promise<boolean> {
+  const sb = browserSupabase(); if (!sb) return false;
+  const { data } = await sb.from("profiles").select("is_admin,can_manage_trips").eq("id", userId).single();
+  const p = data as { is_admin?: boolean; can_manage_trips?: boolean } | null;
+  return !!(p?.is_admin || p?.can_manage_trips);
+}
+
+/** All trips for the CMS (editors see drafts too via RLS), newest first. */
+export async function loadTrips(): Promise<Trip[]> {
+  const sb = browserSupabase(); if (!sb) return [];
+  const { data } = await sb.from("trips").select(TRIP_COLS).order("created_at", { ascending: false });
+  return ((data as TripRow[]) ?? []).map(tripRowToTrip);
+}
+
+export type TripInput = {
+  title: string; region: string; route: MapRoutePoint[][]; markers: SavedMapMarker[];
+  color: string; summitM: number | null; distanceM: number; gainM: number; autoplay: boolean; published: boolean;
+};
+
+/** Create a trip (RLS gates to editors). Slug derived from the title, de-duped. */
+export async function createTrip(t: TripInput, existingSlugs: string[]): Promise<Trip | null> {
+  const sb = browserSupabase(); if (!sb) return null;
+  let slug = slugify(t.title), n = 2;
+  while (existingSlugs.includes(slug)) slug = `${slugify(t.title)}-${n++}`;
+  const { data, error } = await sb.from("trips").insert({
+    slug, title: t.title.slice(0, 120), region: t.region.slice(0, 120),
+    route: t.route, markers: t.markers, color: t.color, summit_m: t.summitM,
+    distance_m: t.distanceM, gain_m: t.gainM, autoplay: t.autoplay, published: t.published,
+  }).select(TRIP_COLS).single();
+  if (error || !data) return null;
+  return tripRowToTrip(data as TripRow);
+}
+
+/** Patch an existing trip by id (RLS gates to editors). */
+export async function updateTrip(id: string, patch: Partial<TripInput>): Promise<Trip | null> {
+  const sb = browserSupabase(); if (!sb) return null;
+  const row: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (patch.title != null) row.title = patch.title.slice(0, 120);
+  if (patch.region != null) row.region = patch.region.slice(0, 120);
+  if (patch.route != null) row.route = patch.route;
+  if (patch.markers != null) row.markers = patch.markers;
+  if (patch.color != null) row.color = patch.color;
+  if (patch.summitM !== undefined) row.summit_m = patch.summitM;
+  if (patch.distanceM != null) row.distance_m = patch.distanceM;
+  if (patch.gainM != null) row.gain_m = patch.gainM;
+  if (patch.autoplay != null) row.autoplay = patch.autoplay;
+  if (patch.published != null) row.published = patch.published;
+  const { data, error } = await sb.from("trips").update(row).eq("id", id).select(TRIP_COLS).single();
+  if (error || !data) return null;
+  return tripRowToTrip(data as TripRow);
+}
+
+export async function deleteTrip(id: string): Promise<boolean> {
+  const sb = browserSupabase(); if (!sb) return false;
+  const { error } = await sb.from("trips").delete().eq("id", id);
+  return !error;
+}
+
 // ── Map social (likes + comments on saved maps) ─────────────────────────────
 /** Like count + whether this user has liked, in one round-trip. */
 export async function loadMapSocial(mapId: string, userId?: string): Promise<{ likes: number; liked: boolean }> {

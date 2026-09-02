@@ -1,0 +1,81 @@
+-- ╔══════════════════════════════════════════════════════════════════════════╗
+-- ║ Panogram — trips (curated, embeddable 3D fly-by routes; the Trips CMS)      ║
+-- ║                                                                            ║
+-- ║ A "trip" is editor-curated content (unlike member-owned `maps`): a named   ║
+-- ║ route with elevation that renders as a white-label 3D helicopter fly-by,   ║
+-- ║ embeddable on external sites (e.g. kafadventures.com) via /embed/<slug>.   ║
+-- ║                                                                            ║
+-- ║ route/markers ride as JSONB, same shape as maps: route is                  ║
+-- ║ [[{lat,lng,ele|null},…],…]; markers is [{lat,lng,label,poiType}].          ║
+-- ║                                                                            ║
+-- ║ Public-read of PUBLISHED trips (the embed is anonymous). Writes gated to   ║
+-- ║ trip editors — is_admin OR the new profiles.can_manage_trips flag — so a   ║
+-- ║ trusted collaborator can manage content without full admin access.         ║
+-- ╚══════════════════════════════════════════════════════════════════════════╝
+
+-- A scoped content-editor capability, separate from full admin.
+alter table public.profiles
+  add column if not exists can_manage_trips boolean not null default false;
+
+-- True when the caller may manage trips (full admin OR the scoped flag).
+create or replace function can_manage_trips() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce((select is_admin or can_manage_trips from profiles where id = auth.uid()), false);
+$$;
+
+create table if not exists public.trips (
+  id          uuid primary key default gen_random_uuid(),
+  slug        text not null unique,
+  title       text not null default 'Untitled trip',
+  region      text not null default '',
+  route       jsonb not null default '[]',   -- [[{lat,lng,ele},…],…] simplified segments
+  markers     jsonb not null default '[]',   -- [{lat,lng,label,poiType},…]
+  color       text not null default '#57eaff',
+  summit_m    double precision,
+  distance_m  double precision not null default 0,
+  gain_m      double precision not null default 0,
+  autoplay    boolean not null default true,
+  published   boolean not null default true,
+  owner_id    uuid references auth.users(id) on delete set null,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+
+comment on table public.trips is
+  'Editor-curated embeddable 3D fly-by routes. Public-read when published; writes gated to can_manage_trips().';
+
+create index if not exists trips_slug_idx on public.trips (slug);
+create index if not exists trips_published_idx on public.trips (published, created_at desc);
+
+alter table public.trips enable row level security;
+
+-- Public read of published trips; editors also see drafts.
+create policy "trips public read" on public.trips
+  for select using (published or can_manage_trips());
+
+-- Editor-only writes (admins or can_manage_trips holders).
+create policy "trips editor insert" on public.trips
+  for insert with check (can_manage_trips());
+create policy "trips editor update" on public.trips
+  for update using (can_manage_trips()) with check (can_manage_trips());
+create policy "trips editor delete" on public.trips
+  for delete using (can_manage_trips());
+
+-- Seed the Pico de Orizaba demo as the first published trip (from the uploaded
+-- GPX, simplified to 224 pts with real elevation; no invented waypoints).
+insert into public.trips (slug, title, region, route, color, summit_m, distance_m, gain_m, autoplay, published)
+values (
+  'pico-de-orizaba',
+  'Pico de Orizaba — Cumbre',
+  'Citlaltépetl · Mexico',
+  '[[{"lat":19.082437,"lng":-97.316954,"ele":3407.8},{"lat":19.082262,"lng":-97.316384,"ele":3419.9},{"lat":19.080603,"lng":-97.316531,"ele":3419.9},{"lat":19.078474,"lng":-97.315392,"ele":3444.1},{"lat":19.078006,"lng":-97.314246,"ele":3437.8},{"lat":19.077826,"lng":-97.313414,"ele":3433.5},{"lat":19.077293,"lng":-97.312614,"ele":3428.6},{"lat":19.077198,"lng":-97.311686,"ele":3437.4},{"lat":19.076837,"lng":-97.311533,"ele":3453.4},{"lat":19.076483,"lng":-97.311053,"ele":3450.8},{"lat":19.07567,"lng":-97.310835,"ele":3468.8},{"lat":19.074957,"lng":-97.310458,"ele":3479.3},{"lat":19.074512,"lng":-97.309683,"ele":3487.1},{"lat":19.074421,"lng":-97.30928,"ele":3499.2},{"lat":19.073771,"lng":-97.30864,"ele":3514.8},{"lat":19.073634,"lng":-97.30825,"ele":3518.2},{"lat":19.073086,"lng":-97.307571,"ele":3533.9},{"lat":19.07288,"lng":-97.30663,"ele":3561.1},{"lat":19.072547,"lng":-97.306432,"ele":3556.8},{"lat":19.071981,"lng":-97.305274,"ele":3604.1},{"lat":19.071474,"lng":-97.304845,"ele":3616.1},{"lat":19.071106,"lng":-97.304742,"ele":3628.6},{"lat":19.070779,"lng":-97.304045,"ele":3657.7},{"lat":19.07057,"lng":-97.303853,"ele":3668.4},{"lat":19.07049,"lng":-97.303347,"ele":3683.6},{"lat":19.070246,"lng":-97.303226,"ele":3682.2},{"lat":19.070299,"lng":-97.302976,"ele":3694.7},{"lat":19.069562,"lng":-97.302771,"ele":3699.5},{"lat":19.069283,"lng":-97.30247,"ele":3710.9},{"lat":19.069174,"lng":-97.301971,"ele":3721.3},{"lat":19.068568,"lng":-97.301626,"ele":3728.3},{"lat":19.068387,"lng":-97.300198,"ele":3748.3},{"lat":19.068437,"lng":-97.299878,"ele":3752.9},{"lat":19.068272,"lng":-97.299315,"ele":3775.0},{"lat":19.068098,"lng":-97.299162,"ele":3774.1},{"lat":19.067598,"lng":-97.298067,"ele":3811.0},{"lat":19.067803,"lng":-97.296896,"ele":3814.9},{"lat":19.06771,"lng":-97.296461,"ele":3828.0},{"lat":19.066794,"lng":-97.294732,"ele":3849.3},{"lat":19.065835,"lng":-97.293837,"ele":3857.7},{"lat":19.065226,"lng":-97.292806,"ele":3876.4},{"lat":19.064701,"lng":-97.292288,"ele":3880.8},{"lat":19.064581,"lng":-97.291712,"ele":3909.5},{"lat":19.064696,"lng":-97.291104,"ele":3919.6},{"lat":19.065138,"lng":-97.290541,"ele":3944.5},{"lat":19.065182,"lng":-97.29072,"ele":3941.1},{"lat":19.065398,"lng":-97.29088,"ele":3944.5},{"lat":19.065659,"lng":-97.290682,"ele":3948.2},{"lat":19.065662,"lng":-97.290426,"ele":3954.6},{"lat":19.06508,"lng":-97.28887,"ele":3979.0},{"lat":19.065765,"lng":-97.288269,"ele":4010.0},{"lat":19.066216,"lng":-97.287437,"ele":4057.9},{"lat":19.066478,"lng":-97.287283,"ele":4066.8},{"lat":19.06657,"lng":-97.286176,"ele":4074.7},{"lat":19.066477,"lng":-97.285517,"ele":4095.4},{"lat":19.066912,"lng":-97.285165,"ele":4107.3},{"lat":19.066883,"lng":-97.284742,"ele":4114.4},{"lat":19.066397,"lng":-97.284352,"ele":4110.0},{"lat":19.063707,"lng":-97.280493,"ele":4187.5},{"lat":19.062104,"lng":-97.278451,"ele":4221.2},{"lat":19.061651,"lng":-97.27728,"ele":4242.1},{"lat":19.06059,"lng":-97.27561,"ele":4287.6},{"lat":19.059861,"lng":-97.27504,"ele":4290.9},{"lat":19.059269,"lng":-97.274957,"ele":4293.7},{"lat":19.058456,"lng":-97.274579,"ele":4300.7},{"lat":19.057837,"lng":-97.273728,"ele":4310.5},{"lat":19.056738,"lng":-97.271437,"ele":4334.4},{"lat":19.056074,"lng":-97.27072,"ele":4342.0},{"lat":19.055288,"lng":-97.270387,"ele":4350.5},{"lat":19.054958,"lng":-97.270086,"ele":4350.9},{"lat":19.054531,"lng":-97.27008,"ele":4369.9},{"lat":19.05371,"lng":-97.270144,"ele":4406.2},{"lat":19.053234,"lng":-97.270458,"ele":4436.2},{"lat":19.053128,"lng":-97.270899,"ele":4466.2},{"lat":19.053003,"lng":-97.270842,"ele":4466.0},{"lat":19.052488,"lng":-97.271213,"ele":4499.5},{"lat":19.051992,"lng":-97.27111,"ele":4508.1},{"lat":19.051758,"lng":-97.271194,"ele":4521.8},{"lat":19.051194,"lng":-97.271002,"ele":4533.3},{"lat":19.050918,"lng":-97.271098,"ele":4548.7},{"lat":19.05079,"lng":-97.270989,"ele":4554.7},{"lat":19.050621,"lng":-97.271027,"ele":4568.7},{"lat":19.050522,"lng":-97.27088,"ele":4569.6},{"lat":19.049853,"lng":-97.270912,"ele":4591.8},{"lat":19.04943,"lng":-97.27079,"ele":4609.5},{"lat":19.049021,"lng":-97.270906,"ele":4627.1},{"lat":19.048606,"lng":-97.270867,"ele":4646.0},{"lat":19.048294,"lng":-97.270682,"ele":4662.3},{"lat":19.04731,"lng":-97.270605,"ele":4704.6},{"lat":19.0472,"lng":-97.270438,"ele":4712.6},{"lat":19.04589,"lng":-97.270144,"ele":4773.0},{"lat":19.045112,"lng":-97.268877,"ele":4814.6},{"lat":19.044571,"lng":-97.268774,"ele":4832.8},{"lat":19.044008,"lng":-97.267974,"ele":4889.6},{"lat":19.044043,"lng":-97.267744,"ele":4890.3},{"lat":19.043669,"lng":-97.267469,"ele":4912.9},{"lat":19.043378,"lng":-97.267693,"ele":4920.2},{"lat":19.042893,"lng":-97.267603,"ele":4935.4},{"lat":19.042675,"lng":-97.26793,"ele":4949.3},{"lat":19.041779,"lng":-97.268493,"ele":4979.7},{"lat":19.041442,"lng":-97.269005,"ele":5005.0},{"lat":19.041216,"lng":-97.269056,"ele":5015.4},{"lat":19.040928,"lng":-97.269408,"ele":5035.7},{"lat":19.03901,"lng":-97.270784,"ele":5148.7},{"lat":19.037034,"lng":-97.27095,"ele":5252.1},{"lat":19.034237,"lng":-97.270861,"ele":5401.7},{"lat":19.033837,"lng":-97.270688,"ele":5433.0},{"lat":19.033226,"lng":-97.270637,"ele":5429.5},{"lat":19.032774,"lng":-97.270362,"ele":5497.8},{"lat":19.03229,"lng":-97.270367,"ele":5534.2},{"lat":19.031416,"lng":-97.269766,"ele":5550.2},{"lat":19.031142,"lng":-97.269696,"ele":5553.4},{"lat":19.030592,"lng":-97.269926,"ele":5560.1},{"lat":19.030352,"lng":-97.269894,"ele":5562.8},{"lat":19.030654,"lng":-97.269907,"ele":5561.9},{"lat":19.031069,"lng":-97.269606,"ele":5558.5},{"lat":19.03131,"lng":-97.269773,"ele":5556.5},{"lat":19.0318,"lng":-97.269613,"ele":5552.9},{"lat":19.03176,"lng":-97.270106,"ele":5587.6},{"lat":19.031914,"lng":-97.270304,"ele":5589.0},{"lat":19.03392,"lng":-97.270758,"ele":5434.2},{"lat":19.034506,"lng":-97.271014,"ele":5393.2},{"lat":19.035387,"lng":-97.270861,"ele":5336.5},{"lat":19.037149,"lng":-97.27095,"ele":5244.5},{"lat":19.0382,"lng":-97.270816,"ele":5190.7},{"lat":19.03848,"lng":-97.270944,"ele":5175.3},{"lat":19.039221,"lng":-97.270662,"ele":5136.2},{"lat":19.041051,"lng":-97.26921,"ele":5024.4},{"lat":19.041555,"lng":-97.268992,"ele":4998.7},{"lat":19.041707,"lng":-97.268576,"ele":4986.3},{"lat":19.042179,"lng":-97.268256,"ele":4964.5},{"lat":19.042259,"lng":-97.268006,"ele":4959.3},{"lat":19.042696,"lng":-97.267821,"ele":4945.2},{"lat":19.042917,"lng":-97.267584,"ele":4933.1},{"lat":19.043578,"lng":-97.267616,"ele":4914.1},{"lat":19.043698,"lng":-97.267462,"ele":4911.7},{"lat":19.043837,"lng":-97.267667,"ele":4901.7},{"lat":19.044106,"lng":-97.267744,"ele":4886.8},{"lat":19.044056,"lng":-97.267917,"ele":4888.4},{"lat":19.044334,"lng":-97.268013,"ele":4869.1},{"lat":19.044422,"lng":-97.268237,"ele":4851.5},{"lat":19.044621,"lng":-97.268262,"ele":4830.6},{"lat":19.044606,"lng":-97.268525,"ele":4828.9},{"lat":19.044867,"lng":-97.268845,"ele":4818.8},{"lat":19.045165,"lng":-97.268922,"ele":4810.4},{"lat":19.045925,"lng":-97.270189,"ele":4772.0},{"lat":19.047237,"lng":-97.270464,"ele":4711.1},{"lat":19.047371,"lng":-97.27063,"ele":4702.2},{"lat":19.049034,"lng":-97.270925,"ele":4628.1},{"lat":19.04936,"lng":-97.270816,"ele":4613.6},{"lat":19.050573,"lng":-97.270867,"ele":4568.8},{"lat":19.050693,"lng":-97.271021,"ele":4564.1},{"lat":19.051139,"lng":-97.27104,"ele":4540.7},{"lat":19.051278,"lng":-97.271238,"ele":4552.2},{"lat":19.052046,"lng":-97.271117,"ele":4514.8},{"lat":19.052245,"lng":-97.271213,"ele":4514.7},{"lat":19.053034,"lng":-97.271021,"ele":4488.3},{"lat":19.05352,"lng":-97.270765,"ele":4456.4},{"lat":19.053934,"lng":-97.270822,"ele":4441.6},{"lat":19.05452,"lng":-97.270272,"ele":4385.8},{"lat":19.055058,"lng":-97.27008,"ele":4351.1},{"lat":19.05537,"lng":-97.270381,"ele":4350.0},{"lat":19.056126,"lng":-97.270707,"ele":4341.7},{"lat":19.056805,"lng":-97.271462,"ele":4333.9},{"lat":19.057117,"lng":-97.272365,"ele":4324.6},{"lat":19.058525,"lng":-97.274592,"ele":4300.5},{"lat":19.05927,"lng":-97.27495,"ele":4293.6},{"lat":19.059902,"lng":-97.275053,"ele":4290.3},{"lat":19.060645,"lng":-97.275635,"ele":4284.4},{"lat":19.061419,"lng":-97.2768,"ele":4251.9},{"lat":19.062376,"lng":-97.278784,"ele":4205.1},{"lat":19.065621,"lng":-97.283078,"ele":4137.3},{"lat":19.065786,"lng":-97.283494,"ele":4117.3},{"lat":19.066984,"lng":-97.28512,"ele":4101.7},{"lat":19.066499,"lng":-97.285555,"ele":4089.5},{"lat":19.06647,"lng":-97.285805,"ele":4086.5},{"lat":19.066797,"lng":-97.286611,"ele":4064.5},{"lat":19.066619,"lng":-97.287085,"ele":4063.8},{"lat":19.066043,"lng":-97.287667,"ele":4038.5},{"lat":19.066013,"lng":-97.288192,"ele":4022.6},{"lat":19.065822,"lng":-97.288045,"ele":4016.9},{"lat":19.06508,"lng":-97.288826,"ele":3973.7},{"lat":19.065653,"lng":-97.290406,"ele":3950.3},{"lat":19.065643,"lng":-97.290694,"ele":3942.6},{"lat":19.065408,"lng":-97.290842,"ele":3940.2},{"lat":19.065078,"lng":-97.290618,"ele":3933.7},{"lat":19.064773,"lng":-97.291034,"ele":3916.2},{"lat":19.064582,"lng":-97.291725,"ele":3905.6},{"lat":19.064736,"lng":-97.29232,"ele":3877.1},{"lat":19.065109,"lng":-97.292646,"ele":3876.3},{"lat":19.065376,"lng":-97.293184,"ele":3871.9},{"lat":19.066165,"lng":-97.29417,"ele":3859.7},{"lat":19.066891,"lng":-97.294874,"ele":3852.3},{"lat":19.067291,"lng":-97.295821,"ele":3839.8},{"lat":19.067698,"lng":-97.296422,"ele":3833.6},{"lat":19.067768,"lng":-97.296928,"ele":3817.4},{"lat":19.06757,"lng":-97.298042,"ele":3814.6},{"lat":19.067754,"lng":-97.298624,"ele":3797.4},{"lat":19.068317,"lng":-97.299507,"ele":3773.0},{"lat":19.068539,"lng":-97.301613,"ele":3732.2},{"lat":19.069165,"lng":-97.302054,"ele":3723.9},{"lat":19.069442,"lng":-97.302739,"ele":3706.1},{"lat":19.070178,"lng":-97.30304,"ele":3700.6},{"lat":19.070154,"lng":-97.303232,"ele":3694.4},{"lat":19.07047,"lng":-97.303482,"ele":3691.2},{"lat":19.070538,"lng":-97.303821,"ele":3682.9},{"lat":19.07103,"lng":-97.304685,"ele":3644.6},{"lat":19.071718,"lng":-97.305402,"ele":3607.4},{"lat":19.072056,"lng":-97.306182,"ele":3587.1},{"lat":19.072651,"lng":-97.306771,"ele":3563.5},{"lat":19.072838,"lng":-97.307398,"ele":3551.0},{"lat":19.073298,"lng":-97.308154,"ele":3532.7},{"lat":19.07492,"lng":-97.310349,"ele":3490.0},{"lat":19.075595,"lng":-97.310816,"ele":3485.1},{"lat":19.075979,"lng":-97.310893,"ele":3473.5},{"lat":19.076502,"lng":-97.311194,"ele":3464.1},{"lat":19.076536,"lng":-97.311469,"ele":3467.7},{"lat":19.077022,"lng":-97.311789,"ele":3453.2},{"lat":19.076963,"lng":-97.312442,"ele":3437.5},{"lat":19.077578,"lng":-97.313235,"ele":3432.2},{"lat":19.078467,"lng":-97.315386,"ele":3444.0},{"lat":19.080598,"lng":-97.316506,"ele":3420.0},{"lat":19.08228,"lng":-97.316403,"ele":3419.9},{"lat":19.082477,"lng":-97.316902,"ele":3408.6}]]'::jsonb,
+  '#57eaff',
+  5589, 19780, 2250, true, true
+)
+on conflict (slug) do nothing;
+
+-- Grant the owner trip-management immediately so /studio is usable on deploy.
+-- (Add collaborators later: set can_manage_trips = true on their profile.)
+update public.profiles p set can_manage_trips = true
+from auth.users u
+where u.id = p.id and u.email = 'me@davidpuerto.com';
