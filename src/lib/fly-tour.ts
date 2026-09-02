@@ -29,6 +29,14 @@ interface TourOpts {
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 // Ease in/out — camera accelerates off the mark and settles, never robotic.
 const easeInOut = (t: number) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
+// Shortest signed turn from one heading to another (−180..180), so bearing
+// smoothing never spins the long way around the compass.
+const angDelta = (from: number, to: number) => ((((to - from) % 360) + 540) % 360) - 180;
+
+// Trail-run camera: close + tilted DOWN toward the trail (not across the range,
+// where foreground ridges would occlude it).
+const RUN_PITCH = 62;
+const RUN_ZOOM = 15.6;
 
 /**
  * Fly the trail. `path` is the ordered route (one flattened polyline). Needs at
@@ -59,9 +67,13 @@ export function flyTour(map: MbMap, path: TourPoint[], opts: TourOpts = {}): Tou
     return { lat: a.lat + (b.lat - a.lat) * f, lng: a.lng + (b.lng - a.lng) * f };
   };
 
-  // Highest point (summit reveal target); falls back to the trail's end.
-  let hi = path[path.length - 1], hiEle = -Infinity;
-  for (const p of path) if ((p.ele ?? -Infinity) > hiEle) { hiEle = p.ele ?? -Infinity; hi = p; }
+  // Highest point = the climax. We fly the trail UP TO the summit and celebrate
+  // there, rather than running the whole loop back down past it.
+  let hiIdx = path.length - 1, hiEle = -Infinity;
+  for (let i = 0; i < path.length; i++) { const e = path[i].ele ?? -Infinity; if (e > hiEle) { hiEle = e; hiIdx = i; } }
+  const hi = path[hiIdx];
+  // Distance flown = up to the summit (unless it sits right at the start — then the whole path).
+  const runEnd = cum[hiIdx] > total * 0.12 ? cum[hiIdx] : total;
 
   // Lock in the direction of travel with a lookahead so bearing doesn't jitter
   // on tight switchbacks — read the heading a little way down the trail.
@@ -78,8 +90,9 @@ export function flyTour(map: MbMap, path: TourPoint[], opts: TourOpts = {}): Tou
     try { map.setConfigProperty("basemap", "lightPreset", p); } catch { /* not Standard */ }
     opts.onPreset?.(p);
   };
-  // Sun sweeps across the flight: dawn on approach → day on the trail → dusk at the summit.
-  const sunFor = (p: number) => (p < 0.15 ? "dawn" : p < 0.7 ? "day" : p < 0.92 ? "dusk" : "night");
+  // Sun sweeps across the climb: dawn at the trailhead → day on the trail →
+  // golden dusk as you crest the summit (the celebration light).
+  const sunFor = (p: number): "dawn" | "day" | "dusk" => (p < 0.12 ? "dawn" : p < 0.75 ? "day" : "dusk");
 
   // A phase that hands the camera to Mapbox's own easing, resolving when it lands.
   const move = (cam: Parameters<MbMap["easeTo"]>[0], ms: number) =>
@@ -108,46 +121,54 @@ export function flyTour(map: MbMap, path: TourPoint[], opts: TourOpts = {}): Tou
     for (const h of io) h?.disable?.();
 
     const start = at(0), startBearing = headingAt(0);
-    const runMs = clamp(total * 1.25, 9000, 22000); // ~9–22s trail run, scaled to length
+    const runMs = clamp(runEnd * 1.6, 13000, 30000); // slower, cinematic; scaled to the climb
 
     try {
       // 1 — ESTABLISH: rise to a wide orbital birdseye over the trailhead.
       setPreset("dawn");
-      await move({ center: [start.lng, start.lat], zoom: 11, pitch: 40, bearing: startBearing - 40 }, 2600);
+      await move({ center: [start.lng, start.lat], zoom: 11, pitch: 42, bearing: startBearing - 35 }, 2800);
       if (cancelled) return;
 
-      // 2 — APPROACH: dive down onto the trailhead like a gunship rolling in.
-      await move({ center: [start.lng, start.lat], zoom: 15.2, pitch: 70, bearing: startBearing }, 2600);
+      // 2 — APPROACH: descend onto the trailhead, settling into the run pose so
+      // the trail run begins without a snap.
+      await move({ center: [start.lng, start.lat], zoom: RUN_ZOOM, pitch: RUN_PITCH, bearing: startBearing }, 2800);
       if (cancelled) return;
 
-      // 3 — TRAIL RUN: skim the route, bearing tracking travel, with a rotor bob.
+      // 3 — TRAIL RUN: climb to the summit. Heading is low-passed so the camera
+      // banks smoothly through switchbacks; distance is eased in and out.
+      let curBearing = startBearing;
       await animate(runMs, (p) => {
-        const d = p * total;
+        const d = easeInOut(p) * runEnd;
         const pos = at(d);
-        const bob = Math.sin(p * Math.PI * 7); // subtle helicopter float
+        curBearing += angDelta(curBearing, headingAt(d)) * 0.08; // smooth bank
+        const bob = Math.sin(p * Math.PI * 4);                   // gentle float
         map.jumpTo({
           center: [pos.lng, pos.lat],
-          bearing: headingAt(d),
-          pitch: 71 + bob * 3,
-          zoom: 15.1 + bob * 0.18,
+          bearing: curBearing,
+          pitch: RUN_PITCH + bob * 1.4,
+          zoom: RUN_ZOOM + bob * 0.08,
         });
         setPreset(sunFor(p));
         opts.onProgress?.(p);
       });
       if (cancelled) return;
 
-      // 4 — SUMMIT REVEAL: orbit the high point 360° and pull back to show the land.
+      // 4 — ARRIVAL: a short beat settling onto the summit before the reveal.
+      setPreset("dusk");
+      await move({ center: [hi.lng, hi.lat], zoom: RUN_ZOOM + 0.3, pitch: 60, bearing: curBearing }, 1100);
+      if (cancelled) return;
+
+      // 5 — SUMMIT CELEBRATION: a slow FULL orbit that pulls back to reveal the massif.
       const orbitFrom = map.getBearing();
-      await animate(6400, (p) => {
+      await animate(11000, (p) => {
         const e = easeInOut(p);
         map.jumpTo({
           center: [hi.lng, hi.lat],
-          bearing: orbitFrom + 340 * e,
-          pitch: 71 - 16 * e,
-          zoom: 15.1 - 1.7 * e,
+          bearing: orbitFrom + 360 * e,
+          pitch: 60 - 13 * e,
+          zoom: (RUN_ZOOM + 0.3) - 2.1 * e,
         });
       });
-      setPreset("dusk");
     } finally {
       for (const h of io) h?.enable?.();
       opts.onEnd?.(cancelled);
