@@ -637,6 +637,14 @@ button.stat:hover { color: var(--ink); }
 .btn-fly:hover { filter: brightness(1.08); box-shadow: 0 0 30px -4px var(--accent); transform: translateY(-1px); }
 .btn-fly:active { transform: translateY(0); }
 
+/* Demo call-to-action — top-centre invite to load a Featured route (Pico de Orizaba). */
+.map-demo-cta {
+  position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 8px; z-index: 4; transition: opacity 0.45s ease;
+}
+.map-wrap[data-idle="true"] .map-demo-cta,
+.map-wrap[data-touring="true"] .map-demo-cta { opacity: 0; pointer-events: none; }
+
 /* Cinematic mode: clear the chrome so nothing competes with the fly-by. */
 .map-wrap[data-touring="true"] .map-3d-controls,
 .map-wrap[data-touring="true"] .map-3d-hint,

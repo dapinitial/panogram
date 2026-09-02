@@ -15,6 +15,7 @@ import MapSocial from "@/components/MapSocial";
 import { sunPosition, sunTimes } from "@/lib/sun";
 import { distanceM } from "@/lib/geo";
 import { flyTour, type TourHandle } from "@/lib/fly-tour";
+import { FEATURED, featuredPlot, type FeaturedRoute } from "@/lib/featured";
 
 // Destination point a distance (m) + compass bearing (deg) from an origin (haversine).
 function destPoint(lat: number, lng: number, bearingDeg: number, distM: number): [number, number] {
@@ -256,6 +257,14 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange, user,
   }
   const stopTour = () => tourRef.current?.cancel();
 
+  // Load a bundled Featured route (the Pico de Orizaba demo) as the shared plot,
+  // then frame it — the Fly button appears and they can launch the tour.
+  function loadFeatured(f: FeaturedRoute) {
+    setAddMode(false); setDrawMode(false); setDrawing([]);
+    onPlotChangeRef.current(featuredPlot(f));
+    track("plot_import", { props: { format: "featured", from: "3d", id: f.id } });
+  }
+
   function fitToPlot(map: mapboxgl.Map): boolean {
     const p = plotRef.current;
     if (!p) return false;
@@ -470,6 +479,16 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange, user,
           )}
           {/* Likes + comments — shows when a SAVED map is open (id rides the shared plot). */}
           {plot.id && <MapSocial key={plot.id} mapId={plot.id} user={user} onAuthRequired={onAuthRequired} />}
+        </div>
+      )}
+      {!drawMode && !plot && FEATURED.length > 0 && (
+        <div className="map-demo-cta">
+          {FEATURED.map((f) => (
+            <button key={f.id} className="btn-fly" onClick={() => loadFeatured(f)}
+              title={`Load the ${f.title} demo — ${(f.distanceM / 1000).toFixed(1)} km · ${f.summitM.toLocaleString()} m`}>
+              ▲ Try the demo · {f.title}
+            </button>
+          ))}
         </div>
       )}
       {!drawMode && !plot && (
