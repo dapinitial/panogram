@@ -14,6 +14,7 @@ import { useIdleReveal } from "@/lib/use-idle-reveal";
 import MapSocial from "@/components/MapSocial";
 import { sunPosition, sunTimes } from "@/lib/sun";
 import { distanceM } from "@/lib/geo";
+import { flyTour, type TourHandle } from "@/lib/fly-tour";
 
 // Destination point a distance (m) + compass bearing (deg) from an origin (haversine).
 function destPoint(lat: number, lng: number, bearingDeg: number, distM: number): [number, number] {
@@ -25,14 +26,17 @@ function destPoint(lat: number, lng: number, bearingDeg: number, distM: number):
 }
 const hhmm = (d: Date) => d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-// Mapbox base styles offered on the 3D map (dusk light preset only applies to Standard).
+// Mapbox base styles offered on the 3D map. Satellite is the new Standard
+// Satellite hybrid (crisp reprojected imagery + real-time lighting/fog/3D), not
+// the old raster satellite-streets — so the dusk preset + sun-rake work on it too.
+// lightPreset applies to the two Standard-family styles; Outdoors ignores it.
 const STYLES = {
+  satellite: "mapbox://styles/mapbox/standard-satellite",
   standard: "mapbox://styles/mapbox/standard",
-  satellite: "mapbox://styles/mapbox/satellite-streets-v12",
   outdoors: "mapbox://styles/mapbox/outdoors-v12",
 } as const;
 type StyleKey = keyof typeof STYLES;
-const STYLE_LABELS: Record<StyleKey, string> = { standard: "Standard", satellite: "Satellite", outdoors: "Outdoors" };
+const STYLE_LABELS: Record<StyleKey, string> = { satellite: "Satellite", standard: "Standard", outdoors: "Outdoors" };
 const uid = () => Math.random().toString(36).slice(2);
 
 // The Atlas in 3D — a SEPARATE engine from the MapLibre 2D map (Slice 4). Mapbox
@@ -60,7 +64,7 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange, user,
   const onPlotChangeRef = useRef(onPlotChange);
   useEffect(() => { onPlotChangeRef.current = onPlotChange; });
 
-  const [mstyle, setMstyle] = useState<StyleKey>("standard");
+  const [mstyle, setMstyle] = useState<StyleKey>("satellite");
   const [addMode, setAddMode] = useState(false);
   const addModeRef = useRef(false);
   useEffect(() => { addModeRef.current = addMode; }, [addMode]);
@@ -76,6 +80,9 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange, user,
   useEffect(() => { sunOnRef.current = sunOn; }, [sunOn]);
   const sunMarkersRef = useRef<mapboxgl.Marker[]>([]);
   const [flatView, setFlatView] = useState(false);       // compass toggle: 3D tilt ↔ top-down north
+  const [touring, setTouring] = useState(false);          // cinematic fly-by in progress
+  const [tourPct, setTourPct] = useState(0);
+  const tourRef = useRef<TourHandle | null>(null);
   const [isTouch] = useState(() => typeof window !== "undefined" && !!window.matchMedia?.("(hover: none), (pointer: coarse)").matches);
   const tiltRef = useRef<{ bearing: number; pitch: number }>({ bearing: -18, pitch: 62 });
   useEffect(() => { drawingRef.current = drawing; }, [drawing]);
@@ -233,6 +240,22 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange, user,
     }
   }
 
+  // Cinematic helicopter fly-by: dive in from orbit, run the trail birdseye, orbit
+  // the summit — the sun rakes dawn→dusk across the flight (fly-tour.ts).
+  function startTour() {
+    const map = mapRef.current; if (!map || touring) return;
+    const path = (plotRef.current?.route ?? []).flat();
+    if (path.length < 2) return;
+    setAddMode(false); setDrawMode(false); setSunOn(false);
+    setTouring(true); setTourPct(0);
+    track("map_tour_play", { props: { points: path.length, from: "3d" } });
+    tourRef.current = flyTour(map, path, {
+      onProgress: setTourPct,
+      onEnd: () => { setTouring(false); tourRef.current = null; },
+    });
+  }
+  const stopTour = () => tourRef.current?.cancel();
+
   function fitToPlot(map: mapboxgl.Map): boolean {
     const p = plotRef.current;
     if (!p) return false;
@@ -277,14 +300,23 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange, user,
     });
 
     map.on("style.load", () => {
-      // Cinematic dusk lighting + atmospheric fog for the globe.
+      // Cinematic dusk lighting for the Standard-family styles.
       try { map.setConfigProperty("basemap", "lightPreset", "dusk"); } catch { /* style variant */ }
+      // Let the raw imagery carry the scene — drop label clutter so the landscape
+      // reads crisp and total (kept place labels: towns/peaks help a trail map).
+      for (const [k, v] of Object.entries({ showPointOfInterestLabels: false, showTransitLabels: false, showRoadLabels: false })) {
+        try { map.setConfigProperty("basemap", k, v); } catch { /* not a Standard style */ }
+      }
+      // Showcase-grade atmosphere: bright stars + deep-space band from orbit that
+      // melt away as you dive down. Fog range pushed out so the near/mid landscape
+      // stays sharp — only deep distance and space haze (landscape "totality").
       map.setFog({
-        color: "rgb(12, 12, 22)",
-        "high-color": "rgb(40, 26, 80)",
-        "horizon-blend": 0.08,
-        "space-color": "rgb(3, 3, 9)",
-        "star-intensity": 0.55,
+        range: [2, 20],
+        color: "rgb(18, 16, 34)",                                  // low-atmosphere haze at the far horizon
+        "high-color": ["interpolate", ["linear"], ["zoom"], 3, "rgb(56, 36, 112)", 7, "rgb(28, 42, 122)"],
+        "space-color": ["interpolate", ["linear"], ["zoom"], 2, "rgb(2, 2, 8)", 6, "rgb(7, 9, 26)"],
+        "horizon-blend": ["interpolate", ["linear"], ["zoom"], 4, 0.04, 10, 0.015],
+        "star-intensity": ["interpolate", ["linear"], ["zoom"], 2, 0.85, 5.5, 0.25, 8, 0],
       });
       // Real 3D relief — a DEM with exaggeration so the mountains actually rise.
       if (!map.getSource("mapbox-dem")) {
@@ -326,9 +358,17 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange, user,
     // Frame the plot if there is one, otherwise the capture pins.
     if (!fitToPlot(map) && geoPosts.length) map.fitBounds(bounds, { padding: 90, maxZoom: 10.5, pitch: 60, bearing: -18, duration: 0 });
 
-    return () => { mapRef.current = null; map.remove(); };
+    return () => { tourRef.current?.cancel(); mapRef.current = null; map.remove(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [posts.length]);
+
+  // Esc bails out of a running fly-by.
+  useEffect(() => {
+    if (!touring) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") stopTour(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [touring]);
 
   // Re-draw when the shared plot changes (e.g. a route imported over in the flat view).
   useEffect(() => {
@@ -371,7 +411,7 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange, user,
   }
 
   return (
-    <div className="map-wrap" data-idle={!revealed} {...bind}
+    <div className="map-wrap" data-idle={!revealed} data-touring={touring} {...bind}
       onFocusCapture={() => setEditing(true)} onBlurCapture={() => setEditing(false)}>
       <div ref={box} className="map-stage" />
       <div className="map-3d-controls">
@@ -386,8 +426,17 @@ export default function MapView3DImpl({ posts, onOpen, plot, onPlotChange, user,
           <button className="btn-sec" data-on={drawMode} onClick={() => { setAddMode(false); setDrawMode((v) => { if (v) setDrawing([]); return !v; }); }}>Draw</button>
           <button className="btn-sec" data-on={sunOn} onClick={toggleSun}>Sun</button>
           <button className="btn-sec" onClick={toggleView} title={flatView ? "Tilt back to 3D" : "Flatten to top-down north"}>{flatView ? "3D view" : "Top-down"}</button>
+          {(plot?.route.flat().length ?? 0) >= 2 && (
+            <button className="btn-fly" onClick={startTour} title="Cinematic helicopter fly-by of the trail">▶ Fly the trail</button>
+          )}
         </div>
       </div>
+      {touring && (
+        <div className="map-tour-hud">
+          <div className="map-tour-bar"><span style={{ width: `${Math.round(tourPct * 100)}%` }} /></div>
+          <button className="map-tour-stop" onClick={stopTour}>✕ Stop fly-by <kbd>Esc</kbd></button>
+        </div>
+      )}
       <input ref={plotInputRef} type="file" hidden accept=".gpx,.geojson,.json,application/gpx+xml,application/geo+json" onChange={(e) => takePlot(e.target.files?.[0])} />
       {err && <div className="map-3d-err glass">{err}</div>}
       {drawMode && (
