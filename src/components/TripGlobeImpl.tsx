@@ -3,33 +3,48 @@
 import { useEffect, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
-import type { MapRoutePoint, SavedMapMarker } from "@/lib/db";
+import type { MapRoutePoint, SavedMapMarker, FlyConfig } from "@/lib/db";
+import { POI } from "@/lib/types";
 import { flyTour, type TourHandle } from "@/lib/fly-tour";
 
 // A lean, CHROMELESS Standard-Satellite globe that drapes a route on real
-// terrain and flies the cinematic helicopter tour. No tools, no panels — it's
-// the embed surface (white-label) and the CMS preview. All editing UI lives
-// outside it (the Trips CMS control bar). Reuses the shared fly-tour engine.
+// terrain and flies the cinematic helicopter tour, honoring the trip's per-trip
+// fly-by settings. No tools, no panels — it's the embed surface (white-label)
+// and the CMS preview. Marker add/drag is enabled only when `editable`.
 
 const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+type LngLat = { lng: number; lat: number };
 
 export default function TripGlobeImpl({
-  route, color = "#57eaff", autoplay = false, loop = false, playToken = 0, onFlyingChange,
+  route, markers = [], color = "#57eaff", fly = {}, autoplay = false, loop = false, playToken = 0,
+  editable = false, addMode = false, onAddMarker, onMoveMarker, onFlyingChange,
 }: {
   route: MapRoutePoint[][];
   markers?: SavedMapMarker[];
   color?: string;
+  fly?: FlyConfig;
   autoplay?: boolean;
   loop?: boolean;
-  playToken?: number;   // bump to (re)start the tour on demand (CMS "Fly" button)
+  playToken?: number;
+  editable?: boolean;
+  addMode?: boolean;
+  onAddMarker?: (ll: LngLat) => void;
+  onMoveMarker?: (i: number, ll: LngLat) => void;
   onFlyingChange?: (flying: boolean) => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const tourRef = useRef<TourHandle | null>(null);
-  const loopRef = useRef(loop);
-  useEffect(() => { loopRef.current = loop; }, [loop]);
+  const markerObjs = useRef<mapboxgl.Marker[]>([]);
   const [ready, setReady] = useState(false);
+
+  // Refs so the one-time map handlers see fresh values.
+  const loopRef = useRef(loop); useEffect(() => { loopRef.current = loop; }, [loop]);
+  const flyRef = useRef(fly); useEffect(() => { flyRef.current = fly; }, [fly]);
+  const addModeRef = useRef(addMode); useEffect(() => { addModeRef.current = addMode; }, [addMode]);
+  const onAddRef = useRef(onAddMarker); useEffect(() => { onAddRef.current = onAddMarker; });
+  const onMoveRef = useRef(onMoveMarker); useEffect(() => { onMoveRef.current = onMoveMarker; });
+  const editableRef = useRef(editable); useEffect(() => { editableRef.current = editable; }, [editable]);
 
   const path = route.flat();
 
@@ -47,9 +62,28 @@ export default function TripGlobeImpl({
     map.addLayer({ id: "trip-route", type: "line", source: "trip-route", paint: { "line-color": color, "line-width": 7, "line-opacity": 0.9, "line-emissive-strength": 1 }, layout: lay });
   }
 
+  function drawMarkers(map: mapboxgl.Map) {
+    for (const mk of markerObjs.current) mk.remove();
+    markerObjs.current = [];
+    markers.forEach((m, i) => {
+      const critical = POI[m.poiType]?.safetyCritical;
+      const el = document.createElement("div");
+      el.className = "plot-pin" + (critical ? " is-critical" : "");
+      el.title = m.label;
+      const dot = document.createElement("span"); dot.className = "plot-pin-dot";
+      const lab = document.createElement("span"); lab.className = "plot-pin-label"; lab.textContent = m.label;
+      el.append(dot, lab);
+      const mk = new mapboxgl.Marker({ element: el, anchor: "bottom", draggable: editableRef.current })
+        .setLngLat([m.lng, m.lat]).addTo(map);
+      if (editableRef.current) mk.on("dragend", () => { const ll = mk.getLngLat(); onMoveRef.current?.(i, { lng: ll.lng, lat: ll.lat }); });
+      markerObjs.current.push(mk);
+    });
+  }
+
   function frame(map: mapboxgl.Map) {
     const b = new mapboxgl.LngLatBounds();
     for (const p of path) b.extend([p.lng, p.lat]);
+    for (const m of markers) b.extend([m.lng, m.lat]);
     if (!b.isEmpty()) map.fitBounds(b, { padding: 60, maxZoom: 13, pitch: 55, bearing: -20, duration: 0 });
   }
 
@@ -58,6 +92,7 @@ export default function TripGlobeImpl({
     tourRef.current?.cancel();
     onFlyingChange?.(true);
     tourRef.current = flyTour(map, path, {
+      ...flyRef.current,
       onEnd: (cancelled) => {
         onFlyingChange?.(false);
         tourRef.current = null;
@@ -79,8 +114,13 @@ export default function TripGlobeImpl({
     });
     mapRef.current = map;
 
+    map.on("click", (e) => {
+      if (addModeRef.current && onAddRef.current) onAddRef.current({ lng: e.lngLat.lng, lat: e.lngLat.lat });
+    });
+
     map.on("style.load", () => {
-      try { map.setConfigProperty("basemap", "lightPreset", "dusk"); } catch {}
+      const base = flyRef.current.lightPreset ?? "dusk";
+      try { map.setConfigProperty("basemap", "lightPreset", base); } catch {}
       for (const [k, v] of Object.entries({ showPointOfInterestLabels: false, showTransitLabels: false, showRoadLabels: false })) {
         try { map.setConfigProperty("basemap", k, v); } catch {}
       }
@@ -95,29 +135,34 @@ export default function TripGlobeImpl({
         map.addSource("mapbox-dem", { type: "raster-dem", url: "mapbox://mapbox.mapbox-terrain-dem-v1", tileSize: 512, maxzoom: 14 });
       }
       map.setTerrain({ source: "mapbox-dem", exaggeration: 1.5 });
-      drawRoute(map);
-      frame(map);
+      drawRoute(map); drawMarkers(map); frame(map);
       setReady(true);
       if (autoplay) setTimeout(() => { if (mapRef.current) startTour(); }, 900);
     });
 
-    return () => { tourRef.current?.cancel(); mapRef.current = null; map.remove(); };
+    return () => { tourRef.current?.cancel(); for (const mk of markerObjs.current) mk.remove(); mapRef.current = null; map.remove(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Re-draw when the route/color changes (CMS live preview after an import).
+  // Re-draw route + markers when they change (CMS live edits).
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
-    drawRoute(map); frame(map);
+    drawRoute(map); drawMarkers(map);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [route, color, ready]);
+  }, [route, color, markers, editable, ready]);
 
-  // Manual fly trigger (CMS button bumps playToken).
+  // Manual fly trigger (CMS bumps playToken).
   useEffect(() => {
     if (playToken > 0 && ready) startTour();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playToken]);
+
+  // Crosshair while dropping a marker.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map) map.getCanvas().style.cursor = addMode ? "crosshair" : "";
+  }, [addMode]);
 
   if (!TOKEN) {
     return <div className="trip-globe trip-globe--empty"><span>3D needs a Mapbox key (NEXT_PUBLIC_MAPBOX_TOKEN).</span></div>;

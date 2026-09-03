@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import type { MapRoutePoint, SavedMapMarker } from "@/lib/db";
+import type { MapRoutePoint, SavedMapMarker, FlyConfig } from "@/lib/db";
 
 // Mapbox is browser-only (window/WebGL) + a large SDK, so the lean trip globe
 // loads client-side only. Used by the /embed page and the Trips CMS preview.
@@ -14,9 +14,14 @@ export default function TripGlobe(props: {
   route: MapRoutePoint[][];
   markers?: SavedMapMarker[];
   color?: string;
+  fly?: FlyConfig;
   autoplay?: boolean;
   loop?: boolean;
   playToken?: number;
+  editable?: boolean;
+  addMode?: boolean;
+  onAddMarker?: (ll: { lng: number; lat: number }) => void;
+  onMoveMarker?: (i: number, ll: { lng: number; lat: number }) => void;
   onFlyingChange?: (flying: boolean) => void;
 }) {
   return <Impl {...props} />;

@@ -1354,3 +1354,28 @@ a.who:hover .handle { color: var(--ink); }
   .studio-field input { min-width: 160px; }
 }
 .studio-embed-actions { display: inline-flex; gap: 8px; flex-wrap: wrap; }
+
+/* CMS: fly-by settings, marker editor, editors panel */
+.studio-field select {
+  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); color: #f4f4fb;
+  padding: 8px 10px; border-radius: 9px; font-size: 13px; min-width: 150px;
+}
+.studio-field select:focus { outline: none; border-color: var(--accent); }
+.studio-field--range { min-width: 190px; }
+.studio-field--range input[type="range"] { accent-color: var(--accent); width: 100%; }
+.studio-fly { padding: 12px; border-radius: 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); align-items: flex-end; }
+.studio-markers { padding: 12px; border-radius: 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column; gap: 8px; }
+.studio-markers-head { display: flex; justify-content: space-between; align-items: center; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #9595b0; }
+.studio-marker { display: flex; gap: 8px; align-items: center; }
+.studio-marker[data-critical="true"] input { border-color: rgba(255,199,120,0.5); }
+.studio-marker input { flex: 1; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); color: #f4f4fb; padding: 7px 10px; border-radius: 8px; font-size: 13px; }
+.studio-marker select { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); color: #f4f4fb; padding: 7px 8px; border-radius: 8px; font-size: 12.5px; }
+.studio-editor-x { background: rgba(255,122,122,0.12); color: #ff7a7a; border: 1px solid rgba(255,122,122,0.25); border-radius: 7px; width: 28px; height: 28px; cursor: pointer; font-size: 12px; }
+.studio-editor-x:hover { background: rgba(255,122,122,0.22); }
+.studio-editors { margin-top: 14px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,0.1); display: flex; flex-direction: column; gap: 6px; }
+.studio-editors-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #9595b0; }
+.studio-editor { display: flex; justify-content: space-between; align-items: center; font-size: 12.5px; color: #c3c3d2; }
+.studio-editor em { color: #57eaff; font-style: normal; font-size: 11px; }
+.studio-grant { display: flex; gap: 6px; margin-top: 4px; }
+.studio-grant input { flex: 1; min-width: 0; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); color: #f4f4fb; padding: 7px 10px; border-radius: 8px; font-size: 13px; }
+.studio-toggle input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; }

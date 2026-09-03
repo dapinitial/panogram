@@ -3,6 +3,7 @@
 // prototype scale; swap for a SQL view if data grows large.
 import { browserSupabase } from "./supabase-browser";
 import type { Annotation, Author, Comment, PoiType, Post, Sighting, Track } from "./types";
+import type { IntroLevel, LightPreset } from "./fly-tour";
 
 const SAMPLE = "https://photo-sphere-viewer-data.netlify.app/assets/sphere-small.jpg";
 
@@ -277,24 +278,32 @@ export async function deleteMap(id: string): Promise<boolean> {
 // ── Trips (editor-curated, embeddable 3D fly-by routes) ─────────────────────
 // Distinct from member `maps`: trips are curated content managed in the Trips
 // CMS (/studio) and embedded white-label on external sites via /embed/<slug>.
+// Per-trip fly-by settings (all optional; the engine falls back to defaults).
+export type FlyConfig = {
+  intro?: IntroLevel;      // opening altitude: space → trailhead
+  pitch?: number;          // birdseye angle 40..78
+  pace?: number;           // speed multiplier (1 = default)
+  sunSweep?: boolean;      // rake dawn→dusk across the climb
+  lightPreset?: LightPreset; // base light mood
+};
 export type Trip = {
   id: string; slug: string; title: string; region: string;
   route: MapRoutePoint[][]; markers: SavedMapMarker[];
   color: string; summitM: number | null; distanceM: number; gainM: number;
-  autoplay: boolean; published: boolean; createdAt: string;
+  autoplay: boolean; published: boolean; fly: FlyConfig; createdAt: string;
 };
 type TripRow = {
   id: string; slug: string; title: string; region: string;
   route: MapRoutePoint[][] | null; markers: SavedMapMarker[] | null;
   color: string; summit_m: number | null; distance_m: number; gain_m: number;
-  autoplay: boolean; published: boolean; created_at: string;
+  autoplay: boolean; published: boolean; fly: FlyConfig | null; created_at: string;
 };
-const TRIP_COLS = "id,slug,title,region,route,markers,color,summit_m,distance_m,gain_m,autoplay,published,created_at";
+const TRIP_COLS = "id,slug,title,region,route,markers,color,summit_m,distance_m,gain_m,autoplay,published,fly,created_at";
 export const tripRowToTrip = (r: TripRow): Trip => ({
   id: r.id, slug: r.slug, title: r.title, region: r.region,
   route: r.route ?? [], markers: r.markers ?? [],
   color: r.color, summitM: r.summit_m, distanceM: r.distance_m, gainM: r.gain_m,
-  autoplay: r.autoplay, published: r.published, createdAt: r.created_at,
+  autoplay: r.autoplay, published: r.published, fly: r.fly ?? {}, createdAt: r.created_at,
 });
 
 /** URL-safe slug from a title (a-z 0-9 dashes). */
@@ -320,7 +329,8 @@ export async function loadTrips(): Promise<Trip[]> {
 
 export type TripInput = {
   title: string; region: string; route: MapRoutePoint[][]; markers: SavedMapMarker[];
-  color: string; summitM: number | null; distanceM: number; gainM: number; autoplay: boolean; published: boolean;
+  color: string; summitM: number | null; distanceM: number; gainM: number;
+  autoplay: boolean; published: boolean; fly: FlyConfig;
 };
 
 /** Create a trip (RLS gates to editors). Slug derived from the title, de-duped. */
@@ -331,7 +341,7 @@ export async function createTrip(t: TripInput, existingSlugs: string[]): Promise
   const { data, error } = await sb.from("trips").insert({
     slug, title: t.title.slice(0, 120), region: t.region.slice(0, 120),
     route: t.route, markers: t.markers, color: t.color, summit_m: t.summitM,
-    distance_m: t.distanceM, gain_m: t.gainM, autoplay: t.autoplay, published: t.published,
+    distance_m: t.distanceM, gain_m: t.gainM, autoplay: t.autoplay, published: t.published, fly: t.fly,
   }).select(TRIP_COLS).single();
   if (error || !data) return null;
   return tripRowToTrip(data as TripRow);
@@ -351,6 +361,7 @@ export async function updateTrip(id: string, patch: Partial<TripInput>): Promise
   if (patch.gainM != null) row.gain_m = patch.gainM;
   if (patch.autoplay != null) row.autoplay = patch.autoplay;
   if (patch.published != null) row.published = patch.published;
+  if (patch.fly != null) row.fly = patch.fly;
   const { data, error } = await sb.from("trips").update(row).eq("id", id).select(TRIP_COLS).single();
   if (error || !data) return null;
   return tripRowToTrip(data as TripRow);
@@ -360,6 +371,24 @@ export async function deleteTrip(id: string): Promise<boolean> {
   const sb = browserSupabase(); if (!sb) return false;
   const { error } = await sb.from("trips").delete().eq("id", id);
   return !error;
+}
+
+/** Current trip editors (admins + can_manage_trips holders) — profiles are public-read. */
+export async function loadTripEditors(): Promise<{ handle: string; isAdmin: boolean }[]> {
+  const sb = browserSupabase(); if (!sb) return [];
+  const { data } = await sb.from("profiles").select("handle,is_admin,can_manage_trips")
+    .or("can_manage_trips.eq.true,is_admin.eq.true");
+  return ((data as { handle: string; is_admin: boolean; can_manage_trips: boolean }[]) ?? [])
+    .map((p) => ({ handle: p.handle, isAdmin: p.is_admin }));
+}
+
+/** Grant/revoke a collaborator's trip-editor access by @handle. Runs through a
+ *  SECURITY DEFINER function that itself checks the caller is already an editor —
+ *  so no admin client in the browser. Returns false if the handle isn't found. */
+export async function grantTripEditor(handle: string, enable: boolean): Promise<boolean> {
+  const sb = browserSupabase(); if (!sb) return false;
+  const { data, error } = await sb.rpc("grant_trip_editor", { target_handle: handle.replace(/^@/, ""), enable });
+  return !error && data === true;
 }
 
 // ── Map social (likes + comments on saved maps) ─────────────────────────────

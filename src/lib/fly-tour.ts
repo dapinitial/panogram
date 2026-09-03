@@ -17,13 +17,29 @@ export interface TourHandle {
   cancel: () => void;
 }
 
+export type IntroLevel = "space" | "continent" | "country" | "region" | "area" | "trailhead";
+export type LightPreset = "dawn" | "day" | "dusk" | "night";
+
 interface TourOpts {
   /** 0→1 as the trail run progresses (drives the HUD). */
   onProgress?: (pct: number) => void;
   /** Fired once when the whole tour ends (finished OR cancelled). */
   onEnd?: (cancelled: boolean) => void;
   /** Called with a Mapbox `lightPreset` name as the sun sweeps; no-ops off Standard. */
-  onPreset?: (preset: "dawn" | "day" | "dusk" | "night") => void;
+  onPreset?: (preset: LightPreset) => void;
+  // ── Per-trip fly-by settings (all optional; defaults reproduce the original) ──
+  /** Where the camera begins its descent. Default "space". */
+  intro?: IntroLevel;
+  /** Trail-run birdseye pitch, 45 (top-down-ish) → 75 (low/cinematic). Default 62. */
+  pitch?: number;
+  /** Pace multiplier: >1 faster, <1 slower. Default 1. */
+  pace?: number;
+  /** Sun rakes dawn→dusk across the climb. Default true. When false, the light
+   *  stays fixed at `lightPreset`. */
+  sunSweep?: boolean;
+  /** Base light mood (start-of-flight, and the whole flight when sunSweep is off).
+   *  Default "dawn". */
+  lightPreset?: LightPreset;
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -35,8 +51,13 @@ const angDelta = (from: number, to: number) => ((((to - from) % 360) + 540) % 36
 
 // Trail-run camera: close + tilted DOWN toward the trail (not across the range,
 // where foreground ridges would occlude it).
-const RUN_PITCH = 62;
+const DEFAULT_RUN_PITCH = 62;
 const RUN_ZOOM = 15.6;
+// Opening zoom per altitude choice — how far out the descent begins. "trailhead"
+// skips the space reveal and starts right on the ground.
+const INTRO_ZOOM: Record<IntroLevel, number> = {
+  space: 1.5, continent: 3.2, country: 4.6, region: 6.6, area: 9, trailhead: 13.2,
+};
 
 /**
  * Fly the trail. `path` is the ordered route (one flattened polyline). Needs at
@@ -121,21 +142,36 @@ export function flyTour(map: MbMap, path: TourPoint[], opts: TourOpts = {}): Tou
     for (const h of io) h?.disable?.();
 
     const start = at(0), startBearing = headingAt(0);
-    const runMs = clamp(runEnd * 2.1, 16000, 38000); // slow, cinematic climb; scaled to the ascent
+    const pace = opts.pace && opts.pace > 0 ? opts.pace : 1;
+    const runPitch = clamp(opts.pitch ?? DEFAULT_RUN_PITCH, 40, 78);
+    const base: LightPreset = opts.lightPreset ?? "dawn";
+    const sweep = opts.sunSweep !== false;
+    const runMs = clamp((runEnd * 2.1) / pace, 12000, 42000); // scaled to ascent + pace
 
     try {
-      // 0 — SPACE: the whole Earth from orbit (globe + atmosphere + stars), a beat
-      // to register the planet, then a long descent toward the region.
-      setPreset("dawn");
-      map.jumpTo({ center: [start.lng, start.lat], zoom: 1.5, pitch: 0, bearing: 0 });
-      await animate(1200, () => {}); // hold on the planet
-      if (cancelled) return;
-      await move({ center: [start.lng, start.lat], zoom: 10.5, pitch: 45, bearing: startBearing - 35 }, 5400);
+      // 0 — OPENING: descend from the chosen altitude (space reveal → regional
+      // establish → straight to the trailhead).
+      setPreset(base);
+      const introZoom = INTRO_ZOOM[opts.intro ?? "space"];
+      if (introZoom <= 5) {
+        // Space reveal: the whole planet, a beat, then a long descent.
+        map.jumpTo({ center: [start.lng, start.lat], zoom: introZoom, pitch: 0, bearing: 0 });
+        await animate(1200, () => {});
+        if (cancelled) return;
+        await move({ center: [start.lng, start.lat], zoom: 10.5, pitch: 45, bearing: startBearing - 35 }, 5400);
+      } else if (introZoom < 12) {
+        // Regional establish: start out over the range, ease in.
+        map.jumpTo({ center: [start.lng, start.lat], zoom: introZoom, pitch: 25, bearing: startBearing - 30 });
+        await move({ center: [start.lng, start.lat], zoom: 10.5, pitch: 45, bearing: startBearing - 30 }, 3600);
+      } else {
+        // Trailhead: skip the reveal, drop right in.
+        map.jumpTo({ center: [start.lng, start.lat], zoom: introZoom, pitch: 40, bearing: startBearing - 10 });
+      }
       if (cancelled) return;
 
       // 1 — APPROACH: descend onto the trailhead, settling into the run pose so
       // the trail run begins without a snap.
-      await move({ center: [start.lng, start.lat], zoom: RUN_ZOOM, pitch: RUN_PITCH, bearing: startBearing }, 3000);
+      await move({ center: [start.lng, start.lat], zoom: RUN_ZOOM, pitch: runPitch, bearing: startBearing }, 3000);
       if (cancelled) return;
 
       // 2 — TRAIL RUN: climb to the summit. Heading is low-passed so the camera
@@ -149,16 +185,16 @@ export function flyTour(map: MbMap, path: TourPoint[], opts: TourOpts = {}): Tou
         map.jumpTo({
           center: [pos.lng, pos.lat],
           bearing: curBearing,
-          pitch: RUN_PITCH + bob * 1.4,
+          pitch: runPitch + bob * 1.4,
           zoom: RUN_ZOOM + bob * 0.08,
         });
-        setPreset(sunFor(p));
+        if (sweep) setPreset(sunFor(p));
         opts.onProgress?.(p);
       });
       if (cancelled) return;
 
       // 3 — ARRIVAL: a short beat settling onto the summit before the reveal.
-      setPreset("dusk");
+      setPreset(sweep ? "dusk" : base);
       await move({ center: [hi.lng, hi.lat], zoom: RUN_ZOOM + 0.3, pitch: 60, bearing: curBearing }, 1100);
       if (cancelled) return;
 

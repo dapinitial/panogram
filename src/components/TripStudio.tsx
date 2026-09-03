@@ -4,26 +4,28 @@ import { useEffect, useRef, useState } from "react";
 import TripGlobe from "@/components/TripGlobe";
 import { importPlotFile } from "@/lib/plot-import";
 import { track } from "@/lib/telemetry";
+import { POI, type PoiType } from "@/lib/types";
+import type { IntroLevel, LightPreset } from "@/lib/fly-tour";
 import {
-  loadTrips, createTrip, updateTrip, deleteTrip, ROUTE_COLORS,
-  type Trip, type MapRoutePoint, type SavedMapMarker,
+  loadTrips, createTrip, updateTrip, deleteTrip, loadTripEditors, grantTripEditor, ROUTE_COLORS,
+  type Trip, type MapRoutePoint, type SavedMapMarker, type FlyConfig,
 } from "@/lib/db";
 
-// The Trips CMS editor. Left: the trip list + New. Right: a 3D preview of the
-// route with ALL the editing tools in a CONTROL BAR BELOW the map (the map stays
-// clean, like the embed). Upload a GPX/GeoJSON, title it, pick a colour, fly it
-// to check, publish — then copy the <iframe> snippet for the external site.
+// The Trips CMS editor. Left: the trip list + editors panel. Right: a 3D preview
+// with ALL the tools in a CONTROL BAR BELOW the map (map stays clean, like the
+// embed). Upload a GPX/GeoJSON, tune the fly-by, edit markers, publish — then
+// copy the <iframe> snippet for the external site.
 
 type Draft = {
   id?: string; slug?: string; title: string; region: string;
   route: MapRoutePoint[][]; markers: SavedMapMarker[]; color: string;
   summitM: number | null; distanceM: number; gainM: number;
-  autoplay: boolean; published: boolean;
+  autoplay: boolean; published: boolean; fly: FlyConfig;
 };
 
 const blankDraft = (): Draft => ({
   title: "", region: "", route: [], markers: [], color: "#57eaff",
-  summitM: null, distanceM: 0, gainM: 0, autoplay: true, published: false,
+  summitM: null, distanceM: 0, gainM: 0, autoplay: true, published: false, fly: {},
 });
 const summitOf = (route: MapRoutePoint[][]): number | null => {
   let m = -Infinity;
@@ -33,34 +35,48 @@ const summitOf = (route: MapRoutePoint[][]): number | null => {
 const hasRoute = (d: Draft | null) => !!d && d.route.some((s) => s.length > 1);
 const km = (m: number) => (m / 1000).toFixed(1);
 
+const INTROS: { v: IntroLevel; label: string }[] = [
+  { v: "space", label: "🌍 Space" }, { v: "continent", label: "🗺️ Continent" },
+  { v: "country", label: "🏳️ Country" }, { v: "region", label: "⛰️ Region" },
+  { v: "area", label: "🌲 Area" }, { v: "trailhead", label: "🥾 Trailhead" },
+];
+const LIGHTS: { v: LightPreset; label: string }[] = [
+  { v: "dawn", label: "Dawn" }, { v: "day", label: "Day" }, { v: "dusk", label: "Dusk" }, { v: "night", label: "Night" },
+];
+const PACES: { v: number; label: string }[] = [
+  { v: 0.7, label: "Relaxed" }, { v: 1, label: "Cinematic" }, { v: 1.5, label: "Brisk" },
+];
+
 export default function TripStudio({ baseUrl, userId }: { baseUrl: string; userId: string }) {
   void userId;
   const [trips, setTrips] = useState<Trip[]>([]);
+  const [editors, setEditors] = useState<{ handle: string; isAdmin: boolean }[]>([]);
+  const [grantHandle, setGrantHandle] = useState("");
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [playToken, setPlayToken] = useState(0);
   const [flying, setFlying] = useState(false);
+  const [addMode, setAddMode] = useState(false);
   const [copied, setCopied] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
-  // The snippet MUST be an absolute URL to Panogram's origin — a relative src
-  // would resolve against the host site (kafadventures.com) and 404. window
-  // origin is exactly where this CMS (and the embed) is served.
   const [origin, setOrigin] = useState(baseUrl);
   useEffect(() => { if (typeof window !== "undefined") setOrigin(window.location.origin); }, []);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const refresh = async () => setTrips(await loadTrips());
-  useEffect(() => { refresh(); }, []);
+  const refreshEditors = async () => setEditors(await loadTripEditors());
+  useEffect(() => { refresh(); refreshEditors(); }, []);
 
   const patch = (p: Partial<Draft>) => setDraft((d) => (d ? { ...d, ...p } : d));
+  const patchFly = (p: Partial<FlyConfig>) => setDraft((d) => (d ? { ...d, fly: { ...d.fly, ...p } } : d));
 
   function selectTrip(t: Trip) {
-    setErr(""); setCopied(false); setConfirmDel(false);
+    setErr(""); setCopied(false); setConfirmDel(false); setAddMode(false);
     setDraft({
       id: t.id, slug: t.slug, title: t.title, region: t.region,
       route: t.route, markers: t.markers, color: t.color, summitM: t.summitM,
-      distanceM: t.distanceM, gainM: t.gainM, autoplay: t.autoplay, published: t.published,
+      distanceM: t.distanceM, gainM: t.gainM, autoplay: t.autoplay, published: t.published, fly: t.fly,
     });
   }
 
@@ -71,16 +87,23 @@ export default function TripStudio({ baseUrl, userId }: { baseUrl: string; userI
     if ("error" in res) { setErr(res.error); return; }
     const p = res.plot;
     setDraft((d) => {
-      const base = d ?? blankDraft();
+      const b = d ?? blankDraft();
       return {
-        ...base,
-        title: base.title || p.title,
-        route: p.route, markers: p.markers,
-        color: p.color ?? base.color,
-        distanceM: p.distanceM, gainM: p.gainM, summitM: summitOf(p.route),
+        ...b, title: b.title || p.title, route: p.route, markers: p.markers,
+        color: p.color ?? b.color, distanceM: p.distanceM, gainM: p.gainM, summitM: summitOf(p.route),
       };
     });
   }
+
+  // ── markers ──
+  const patchMarker = (i: number, mp: Partial<SavedMapMarker>) =>
+    patch({ markers: (draft?.markers ?? []).map((m, j) => (j === i ? { ...m, ...mp } : m)) });
+  const removeMarker = (i: number) => patch({ markers: (draft?.markers ?? []).filter((_, j) => j !== i) });
+  const addMarkerAt = (ll: { lng: number; lat: number }) => {
+    setDraft((d) => (d ? { ...d, markers: [...d.markers, { lat: ll.lat, lng: ll.lng, label: "New marker", poiType: "other" }] } : d));
+    setAddMode(false);
+  };
+  const moveMarker = (i: number, ll: { lng: number; lat: number }) => patchMarker(i, { lat: ll.lat, lng: ll.lng });
 
   async function save() {
     if (!draft) return;
@@ -90,11 +113,9 @@ export default function TripStudio({ baseUrl, userId }: { baseUrl: string; userI
     const input = {
       title: draft.title, region: draft.region, route: draft.route, markers: draft.markers,
       color: draft.color, summitM: draft.summitM, distanceM: draft.distanceM, gainM: draft.gainM,
-      autoplay: draft.autoplay, published: draft.published,
+      autoplay: draft.autoplay, published: draft.published, fly: draft.fly,
     };
-    const saved = draft.id
-      ? await updateTrip(draft.id, input)
-      : await createTrip(input, trips.map((t) => t.slug));
+    const saved = draft.id ? await updateTrip(draft.id, input) : await createTrip(input, trips.map((t) => t.slug));
     setBusy(false);
     if (!saved) { setErr("Save failed — check you have editor access."); return; }
     track("trip_save", { props: { published: saved.published, new: !draft.id } });
@@ -107,33 +128,38 @@ export default function TripStudio({ baseUrl, userId }: { baseUrl: string; userI
     setBusy(true);
     const ok = await deleteTrip(draft.id);
     setBusy(false);
-    if (ok) { setDraft(null); setConfirmDel(false); await refresh(); }
-    else setErr("Delete failed.");
+    if (ok) { setDraft(null); setConfirmDel(false); await refresh(); } else setErr("Delete failed.");
+  }
+
+  async function grant(handle: string, enable: boolean) {
+    const h = handle.trim(); if (!h) return;
+    const ok = await grantTripEditor(h, enable);
+    if (ok) { setGrantHandle(""); await refreshEditors(); }
+    else setErr(`Couldn't ${enable ? "add" : "remove"} @${h.replace(/^@/, "")} — check the handle.`);
   }
 
   const embedUrl = draft?.slug ? `${origin}/embed/${draft.slug}` : "";
   const snippet = embedUrl
     ? `<iframe src="${embedUrl}" width="100%" height="540" style="border:0;border-radius:16px" loading="lazy" allow="fullscreen"></iframe>`
     : "";
-
   function copyText(text: string) {
     if (!text) return;
     navigator.clipboard?.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
   }
 
+  const fly = draft?.fly ?? {};
+  const pitch = fly.pitch ?? 62;
+
   return (
     <main className="studio">
       <header className="studio-head">
-        <div>
-          <div className="eyebrow">Panogram · white-label</div>
-          <h1>Trips CMS</h1>
-        </div>
+        <div><div className="eyebrow">Panogram · white-label</div><h1>Trips CMS</h1></div>
         <a className="btn-sec" href="/">← App</a>
       </header>
 
       <div className="studio-body">
         <aside className="studio-list">
-          <button className="btn-fly studio-new" onClick={() => { setDraft(blankDraft()); setErr(""); setCopied(false); }}>+ New trip</button>
+          <button className="btn-fly studio-new" onClick={() => { setDraft(blankDraft()); setErr(""); setCopied(false); setAddMode(false); }}>+ New trip</button>
           {trips.map((t) => (
             <button key={t.id} className="studio-trip" data-active={draft?.id === t.id} onClick={() => selectTrip(t)}>
               <b>{t.title}</b>
@@ -142,6 +168,21 @@ export default function TripStudio({ baseUrl, userId }: { baseUrl: string; userI
             </button>
           ))}
           {trips.length === 0 && <p className="plot-hint">No trips yet — create one.</p>}
+
+          <div className="studio-editors">
+            <div className="studio-editors-head">Trip editors</div>
+            {editors.map((e) => (
+              <div className="studio-editor" key={e.handle}>
+                <span>@{e.handle}{e.isAdmin && <em> · admin</em>}</span>
+                {!e.isAdmin && <button className="studio-editor-x" title="Remove access" onClick={() => grant(e.handle, false)}>✕</button>}
+              </div>
+            ))}
+            <div className="studio-grant">
+              <input placeholder="@handle" value={grantHandle} onChange={(e) => setGrantHandle(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && grant(grantHandle, true)} />
+              <button className="btn-sec" onClick={() => grant(grantHandle, true)}>Grant</button>
+            </div>
+          </div>
         </aside>
 
         <section className="studio-edit">
@@ -151,11 +192,12 @@ export default function TripStudio({ baseUrl, userId }: { baseUrl: string; userI
             <>
               <div className="studio-preview">
                 {hasRoute(draft)
-                  ? <TripGlobe route={draft.route} color={draft.color} playToken={playToken} onFlyingChange={setFlying} />
+                  ? <TripGlobe route={draft.route} markers={draft.markers} color={draft.color} fly={draft.fly}
+                      playToken={playToken} editable addMode={addMode}
+                      onAddMarker={addMarkerAt} onMoveMarker={moveMarker} onFlyingChange={setFlying} />
                   : <div className="studio-preview-empty"><span>Upload a GPX or GeoJSON to preview the route in 3D.</span></div>}
               </div>
 
-              {/* Control bar — all tools live here, below the clean map. */}
               <div className="studio-bar">
                 <div className="studio-row">
                   <button className="btn-sec" onClick={() => fileRef.current?.click()}>
@@ -166,40 +208,77 @@ export default function TripStudio({ baseUrl, userId }: { baseUrl: string; userI
                   </button>
                   {hasRoute(draft) && (
                     <span className="studio-stats">
-                      {km(draft.distanceM)} km · +{Math.round(draft.gainM)} m{draft.summitM ? ` · ${draft.summitM.toLocaleString()} m summit` : ""}
+                      {km(draft.distanceM)} km · +{Math.round(draft.gainM)} m{draft.summitM ? ` · ${draft.summitM.toLocaleString()} m` : ""}
                     </span>
                   )}
                 </div>
 
-                <div className="studio-row">
+                {/* Fly-by settings */}
+                <div className="studio-row studio-fly">
                   <label className="studio-field">
-                    <span>Title</span>
-                    <input value={draft.title} maxLength={120} placeholder="Pico de Orizaba — Cumbre" onChange={(e) => patch({ title: e.target.value })} />
+                    <span>Opening altitude</span>
+                    <select value={fly.intro ?? "space"} onChange={(e) => patchFly({ intro: e.target.value as IntroLevel })}>
+                      {INTROS.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
+                    </select>
+                  </label>
+                  <label className="studio-field studio-field--range">
+                    <span>Birdseye angle · {pitch}°</span>
+                    <input type="range" min={45} max={78} value={pitch} onChange={(e) => patchFly({ pitch: Number(e.target.value) })} />
                   </label>
                   <label className="studio-field">
-                    <span>Region</span>
-                    <input value={draft.region} maxLength={120} placeholder="Citlaltépetl · Mexico" onChange={(e) => patch({ region: e.target.value })} />
+                    <span>Pace</span>
+                    <select value={fly.pace ?? 1} onChange={(e) => patchFly({ pace: Number(e.target.value) })}>
+                      {PACES.map((o) => <option key={o.label} value={o.v}>{o.label}</option>)}
+                    </select>
+                  </label>
+                  <label className="studio-field">
+                    <span>Light mood</span>
+                    <select value={fly.lightPreset ?? "dawn"} onChange={(e) => patchFly({ lightPreset: e.target.value as LightPreset })}>
+                      {LIGHTS.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
+                    </select>
+                  </label>
+                  <label className="studio-toggle">
+                    <input type="checkbox" checked={fly.sunSweep !== false} onChange={(e) => patchFly({ sunSweep: e.target.checked })} />
+                    <span>Sun sweeps dawn→dusk</span>
                   </label>
                 </div>
 
+                {/* Details */}
                 <div className="studio-row">
-                  <div className="studio-field">
-                    <span>Line colour</span>
+                  <label className="studio-field"><span>Title</span>
+                    <input value={draft.title} maxLength={120} placeholder="Pico de Orizaba — Cumbre" onChange={(e) => patch({ title: e.target.value })} /></label>
+                  <label className="studio-field"><span>Region</span>
+                    <input value={draft.region} maxLength={120} placeholder="Citlaltépetl · Mexico" onChange={(e) => patch({ region: e.target.value })} /></label>
+                  <div className="studio-field"><span>Line colour</span>
                     <div className="plot-colors">
                       {ROUTE_COLORS.map((c) => (
                         <button key={c} className="plot-color" data-on={draft.color === c} style={{ background: c }} onClick={() => patch({ color: c })} aria-label={`Colour ${c}`} />
                       ))}
                     </div>
                   </div>
-                  <label className="studio-toggle">
-                    <input type="checkbox" checked={draft.autoplay} onChange={(e) => patch({ autoplay: e.target.checked })} />
-                    <span>Auto-play fly-by on load</span>
-                  </label>
-                  <label className="studio-toggle">
-                    <input type="checkbox" checked={draft.published} onChange={(e) => patch({ published: e.target.checked })} />
-                    <span>Published (visible on the embed)</span>
-                  </label>
+                  <label className="studio-toggle"><input type="checkbox" checked={draft.autoplay} onChange={(e) => patch({ autoplay: e.target.checked })} /><span>Auto-play on load</span></label>
+                  <label className="studio-toggle"><input type="checkbox" checked={draft.published} onChange={(e) => patch({ published: e.target.checked })} /><span>Published</span></label>
                 </div>
+
+                {/* Markers */}
+                {hasRoute(draft) && (
+                  <div className="studio-markers">
+                    <div className="studio-markers-head">
+                      <span>Markers</span>
+                      <button className="btn-sec" data-on={addMode} onClick={() => setAddMode((v) => !v)}>{addMode ? "Click the map…" : "+ Add marker"}</button>
+                    </div>
+                    {draft.markers.map((m, i) => (
+                      <div className="studio-marker" key={i} data-critical={POI[m.poiType]?.safetyCritical}>
+                        <input value={m.label} onChange={(e) => patchMarker(i, { label: e.target.value })} />
+                        <select value={m.poiType} onChange={(e) => patchMarker(i, { poiType: e.target.value as PoiType })}>
+                          {(Object.keys(POI) as PoiType[]).map((k) => <option key={k} value={k}>{POI[k].label}</option>)}
+                        </select>
+                        <button className="studio-editor-x" onClick={() => removeMarker(i)} aria-label="Remove marker">✕</button>
+                      </div>
+                    ))}
+                    {draft.markers.length === 0 && <p className="plot-hint">No markers — drop camp/water/POI with “Add marker”, or they come in from the file.</p>}
+                  </div>
+                )}
 
                 {err && <div className="studio-err">{err}</div>}
 

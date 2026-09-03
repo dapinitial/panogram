@@ -36,7 +36,7 @@ export default async function EmbedPage({ params }: { params: Promise<{ slug: st
   const site = process.env.NEXT_PUBLIC_SITE_URL ?? "https://panogram-fxfju.ondigitalocean.app";
   return (
     <main className="embed-stage">
-      <TripGlobe route={trip.route} markers={trip.markers} color={trip.color} autoplay={trip.autoplay} loop />
+      <TripGlobe route={trip.route} markers={trip.markers} color={trip.color} fly={trip.fly} autoplay={trip.autoplay} loop />
       <a className="embed-brand" href={site} target="_blank" rel="noopener noreferrer">Panogram</a>
     </main>
   );
