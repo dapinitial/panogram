@@ -1,5 +1,6 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import TripStudio from "@/components/TripStudio";
+import StudioLogin from "@/components/StudioLogin";
 
 // The Trips CMS — a white-label content tool for a trusted collaborator to add,
 // edit and publish embeddable 3D fly-by routes without touching code. Gated to
@@ -13,6 +14,8 @@ export default async function StudioPage() {
   const { data: { user } } = await sb.auth.getUser();
   let allowed = false;
   if (user) {
+    // Promote them if their email was invited before they signed up.
+    await sb.rpc("claim_trip_editor_invites");
     const { data } = await sb.from("profiles").select("is_admin,can_manage_trips").eq("id", user.id).single();
     const p = data as { is_admin?: boolean; can_manage_trips?: boolean } | null;
     allowed = !!(p?.is_admin || p?.can_manage_trips);
@@ -21,13 +24,15 @@ export default async function StudioPage() {
   if (!allowed) {
     return (
       <main className="studio-locked">
-        <div className="lock glass">
-          <div className="eyebrow">Trips CMS</div>
-          <h1>{user ? "Not a trip editor" : "Sign in required"}</h1>
-          <p>{user
-            ? "Your account doesn't have trip-management access. Ask an admin to enable it on your profile."
-            : "Sign in with an authorized account to manage trips."}</p>
-        </div>
+        {user ? (
+          <div className="lock glass">
+            <div className="eyebrow">Trips CMS</div>
+            <h1>Not a trip editor yet</h1>
+            <p>The account <b>{user.email}</b> doesn&apos;t have trip access. Ask an editor to invite this email, then reload — you&apos;ll be let in automatically.</p>
+          </div>
+        ) : (
+          <StudioLogin />
+        )}
       </main>
     );
   }

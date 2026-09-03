@@ -1379,3 +1379,8 @@ a.who:hover .handle { color: var(--ink); }
 .studio-grant { display: flex; gap: 6px; margin-top: 4px; }
 .studio-grant input { flex: 1; min-width: 0; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); color: #f4f4fb; padding: 7px 10px; border-radius: 8px; font-size: 13px; }
 .studio-toggle input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; }
+.studio-login { display: flex; gap: 8px; margin-top: 14px; }
+.studio-login input { flex: 1; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); color: #f4f4fb; padding: 10px 12px; border-radius: 10px; font-size: 14px; }
+.studio-login input:focus { outline: none; border-color: var(--accent); }
+.studio-invite span { color: #9595b0; }
+.studio-invite em { color: #ffcd64; }

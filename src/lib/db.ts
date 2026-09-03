@@ -391,6 +391,27 @@ export async function grantTripEditor(handle: string, enable: boolean): Promise<
   return !error && data === true;
 }
 
+/** Invite a collaborator by email — pre-authorizes them before signup; grants
+ *  immediately if a profile with that email already exists. Editor-gated. */
+export async function inviteTripEditor(email: string): Promise<boolean> {
+  const sb = browserSupabase(); if (!sb) return false;
+  const { data, error } = await sb.rpc("invite_trip_editor", { target_email: email.trim() });
+  return !error && data === true;
+}
+
+/** Pending (unclaimed) editor invites — emails not yet attached to an account. */
+export async function loadTripInvites(): Promise<string[]> {
+  const sb = browserSupabase(); if (!sb) return [];
+  const { data } = await sb.from("trip_editor_invites").select("email").order("created_at", { ascending: true });
+  return ((data as { email: string }[]) ?? []).map((r) => r.email);
+}
+
+export async function revokeTripInvite(email: string): Promise<boolean> {
+  const sb = browserSupabase(); if (!sb) return false;
+  const { error } = await sb.from("trip_editor_invites").delete().eq("email", email.toLowerCase().trim());
+  return !error;
+}
+
 // ── Map social (likes + comments on saved maps) ─────────────────────────────
 /** Like count + whether this user has liked, in one round-trip. */
 export async function loadMapSocial(mapId: string, userId?: string): Promise<{ likes: number; liked: boolean }> {

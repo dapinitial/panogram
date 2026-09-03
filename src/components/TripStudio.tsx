@@ -7,7 +7,8 @@ import { track } from "@/lib/telemetry";
 import { POI, type PoiType } from "@/lib/types";
 import type { IntroLevel, LightPreset } from "@/lib/fly-tour";
 import {
-  loadTrips, createTrip, updateTrip, deleteTrip, loadTripEditors, grantTripEditor, ROUTE_COLORS,
+  loadTrips, createTrip, updateTrip, deleteTrip, loadTripEditors, grantTripEditor,
+  inviteTripEditor, loadTripInvites, revokeTripInvite, ROUTE_COLORS,
   type Trip, type MapRoutePoint, type SavedMapMarker, type FlyConfig,
 } from "@/lib/db";
 
@@ -51,7 +52,8 @@ export default function TripStudio({ baseUrl, userId }: { baseUrl: string; userI
   void userId;
   const [trips, setTrips] = useState<Trip[]>([]);
   const [editors, setEditors] = useState<{ handle: string; isAdmin: boolean }[]>([]);
-  const [grantHandle, setGrantHandle] = useState("");
+  const [invites, setInvites] = useState<string[]>([]);
+  const [inviteEmail, setInviteEmail] = useState("");
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -65,7 +67,7 @@ export default function TripStudio({ baseUrl, userId }: { baseUrl: string; userI
   const fileRef = useRef<HTMLInputElement>(null);
 
   const refresh = async () => setTrips(await loadTrips());
-  const refreshEditors = async () => setEditors(await loadTripEditors());
+  const refreshEditors = async () => { setEditors(await loadTripEditors()); setInvites(await loadTripInvites()); };
   useEffect(() => { refresh(); refreshEditors(); }, []);
 
   const patch = (p: Partial<Draft>) => setDraft((d) => (d ? { ...d, ...p } : d));
@@ -131,11 +133,19 @@ export default function TripStudio({ baseUrl, userId }: { baseUrl: string; userI
     if (ok) { setDraft(null); setConfirmDel(false); await refresh(); } else setErr("Delete failed.");
   }
 
-  async function grant(handle: string, enable: boolean) {
-    const h = handle.trim(); if (!h) return;
-    const ok = await grantTripEditor(h, enable);
-    if (ok) { setGrantHandle(""); await refreshEditors(); }
-    else setErr(`Couldn't ${enable ? "add" : "remove"} @${h.replace(/^@/, "")} — check the handle.`);
+  async function revokeEditor(handle: string) {
+    const ok = await grantTripEditor(handle, false);
+    if (ok) await refreshEditors(); else setErr(`Couldn't remove @${handle}.`);
+  }
+  async function invite(email: string) {
+    const e = email.trim(); if (!e || !e.includes("@")) { setErr("Enter a valid email to invite."); return; }
+    const ok = await inviteTripEditor(e);
+    if (ok) { setInviteEmail(""); setErr(""); await refreshEditors(); }
+    else setErr(`Couldn't invite ${e} — check you have editor access.`);
+  }
+  async function unInvite(email: string) {
+    const ok = await revokeTripInvite(email);
+    if (ok) await refreshEditors();
   }
 
   const embedUrl = draft?.slug ? `${origin}/embed/${draft.slug}` : "";
@@ -174,14 +184,21 @@ export default function TripStudio({ baseUrl, userId }: { baseUrl: string; userI
             {editors.map((e) => (
               <div className="studio-editor" key={e.handle}>
                 <span>@{e.handle}{e.isAdmin && <em> · admin</em>}</span>
-                {!e.isAdmin && <button className="studio-editor-x" title="Remove access" onClick={() => grant(e.handle, false)}>✕</button>}
+                {!e.isAdmin && <button className="studio-editor-x" title="Remove access" onClick={() => revokeEditor(e.handle)}>✕</button>}
+              </div>
+            ))}
+            {invites.map((em) => (
+              <div className="studio-editor studio-invite" key={em}>
+                <span>{em} <em>· invited</em></span>
+                <button className="studio-editor-x" title="Cancel invite" onClick={() => unInvite(em)}>✕</button>
               </div>
             ))}
             <div className="studio-grant">
-              <input placeholder="@handle" value={grantHandle} onChange={(e) => setGrantHandle(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && grant(grantHandle, true)} />
-              <button className="btn-sec" onClick={() => grant(grantHandle, true)}>Grant</button>
+              <input type="email" placeholder="invite by email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && invite(inviteEmail)} />
+              <button className="btn-sec" onClick={() => invite(inviteEmail)}>Invite</button>
             </div>
+            <p className="plot-hint">They sign in with a magic link at /studio and are let in automatically.</p>
           </div>
         </aside>
 
