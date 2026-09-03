@@ -43,6 +43,11 @@ export default function TripStudio({ baseUrl, userId }: { baseUrl: string; userI
   const [flying, setFlying] = useState(false);
   const [copied, setCopied] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
+  // The snippet MUST be an absolute URL to Panogram's origin — a relative src
+  // would resolve against the host site (kafadventures.com) and 404. window
+  // origin is exactly where this CMS (and the embed) is served.
+  const [origin, setOrigin] = useState(baseUrl);
+  useEffect(() => { if (typeof window !== "undefined") setOrigin(window.location.origin); }, []);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const refresh = async () => setTrips(await loadTrips());
@@ -106,13 +111,14 @@ export default function TripStudio({ baseUrl, userId }: { baseUrl: string; userI
     else setErr("Delete failed.");
   }
 
-  const snippet = draft?.slug
-    ? `<iframe src="${baseUrl}/embed/${draft.slug}" width="100%" height="540" style="border:0;border-radius:16px" loading="lazy" allow="fullscreen"></iframe>`
+  const embedUrl = draft?.slug ? `${origin}/embed/${draft.slug}` : "";
+  const snippet = embedUrl
+    ? `<iframe src="${embedUrl}" width="100%" height="540" style="border:0;border-radius:16px" loading="lazy" allow="fullscreen"></iframe>`
     : "";
 
-  function copySnippet() {
-    if (!snippet) return;
-    navigator.clipboard?.writeText(snippet).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+  function copyText(text: string) {
+    if (!text) return;
+    navigator.clipboard?.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
   }
 
   return (
@@ -213,7 +219,11 @@ export default function TripStudio({ baseUrl, userId }: { baseUrl: string; userI
                   <div className="studio-embed">
                     <div className="studio-embed-head">
                       <span>Embed on kafadventures.com — paste into a Squarespace Code Block:</span>
-                      <button className="btn-sec" onClick={copySnippet}>{copied ? "Copied ✓" : "Copy snippet"}</button>
+                      <span className="studio-embed-actions">
+                        <a className="btn-sec" href={embedUrl} target="_blank" rel="noopener noreferrer">Open preview ↗</a>
+                        <button className="btn-sec" onClick={() => copyText(embedUrl)}>Copy URL</button>
+                        <button className="btn-sec" onClick={() => copyText(snippet)}>{copied ? "Copied ✓" : "Copy snippet"}</button>
+                      </span>
                     </div>
                     <code className="studio-snippet">{snippet}</code>
                     {!draft.published && <p className="plot-hint">Note: the embed only renders once this trip is Published.</p>}

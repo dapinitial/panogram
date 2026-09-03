@@ -1353,3 +1353,4 @@ a.who:hover .handle { color: var(--ink); }
   .studio-list { border-right: 0; border-bottom: 1px solid rgba(255,255,255,0.1); flex-direction: row; overflow-x: auto; }
   .studio-field input { min-width: 160px; }
 }
+.studio-embed-actions { display: inline-flex; gap: 8px; flex-wrap: wrap; }
