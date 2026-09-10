@@ -45,6 +45,7 @@ export default function TripGlobeImpl({
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const tourRef = useRef<TourHandle | null>(null);
   const markerObjs = useRef<mapboxgl.Marker[]>([]);
+  const drawnRouteRef = useRef<MapRoutePoint[][] | null>(null); // last route drawn — skips redundant redraws
   const [ready, setReady] = useState(false);
   const [flying, setFlying] = useState(false);
   const [mapErr, setMapErr] = useState(false);
@@ -62,18 +63,30 @@ export default function TripGlobeImpl({
 
   const setFly = (v: boolean) => { setFlying(v); onFlyRef.current?.(v); };
 
+  // Update the route IN PLACE (setData) — never removeSource. Mapbox v3 throws
+  // inside _updateTerrain if a source is removed while the terrain DEM is still
+  // loading, and an uncaught error here would crash the whole page (a white
+  // error screen on the client's site). Also cheaper than re-adding layers.
+  type GJ = Parameters<mapboxgl.GeoJSONSource["setData"]>[0];
   function drawRoute(map: mapboxgl.Map) {
-    for (const id of ["trip-route", "trip-route-casing"]) if (map.getLayer(id)) map.removeLayer(id);
-    if (map.getSource("trip-route")) map.removeSource("trip-route");
-    const segs = route.filter((s) => s.length > 1);
-    if (!segs.length) return;
-    map.addSource("trip-route", { type: "geojson", data: {
-      type: "Feature", properties: {},
-      geometry: { type: "MultiLineString", coordinates: segs.map((s) => s.map((p) => [p.lng, p.lat])) },
-    } });
-    const lay = { "line-cap": "round" as const, "line-join": "round" as const };
-    map.addLayer({ id: "trip-route-casing", type: "line", source: "trip-route", paint: { "line-color": "#05060a", "line-width": 9, "line-opacity": 0.5 }, layout: lay });
-    map.addLayer({ id: "trip-route", type: "line", source: "trip-route", paint: { "line-color": color, "line-width": 7, "line-opacity": 0.9, "line-emissive-strength": 1 }, layout: lay });
+    try {
+      const segs = route.filter((s) => s.length > 1);
+      const data: GJ = {
+        type: "Feature", properties: {},
+        geometry: { type: "MultiLineString", coordinates: segs.map((s) => s.map((p) => [p.lng, p.lat])) },
+      };
+      const src = map.getSource("trip-route") as mapboxgl.GeoJSONSource | undefined;
+      if (src) {
+        src.setData(data);
+        if (map.getLayer("trip-route")) map.setPaintProperty("trip-route", "line-color", color);
+        return;
+      }
+      if (!segs.length) return;
+      map.addSource("trip-route", { type: "geojson", data });
+      const lay = { "line-cap": "round" as const, "line-join": "round" as const };
+      map.addLayer({ id: "trip-route-casing", type: "line", source: "trip-route", paint: { "line-color": "#05060a", "line-width": 9, "line-opacity": 0.5 }, layout: lay });
+      map.addLayer({ id: "trip-route", type: "line", source: "trip-route", paint: { "line-color": color, "line-width": 7, "line-opacity": 0.9, "line-emissive-strength": 1 }, layout: lay });
+    } catch (e) { console.warn("[trip-globe] route draw", e); }
   }
 
   function drawMarkers(map: mapboxgl.Map) {
@@ -169,6 +182,7 @@ export default function TripGlobeImpl({
       }
       map.setTerrain({ source: "mapbox-dem", exaggeration: 1.5 });
       drawRoute(map); drawMarkers(map); frame(map);
+      drawnRouteRef.current = route;
       setReady(true);
       // Honour reduced-motion: never auto-launch a 60s camera move on them.
       if (autoplay && !reducedMotion()) setTimeout(() => { if (mapRef.current) startTour(); }, 900);
@@ -179,12 +193,16 @@ export default function TripGlobeImpl({
   }, []);
 
   // A new route (importing a different file / switching trips) cancels any
-  // in-flight tour (it was tracing the OLD path), redraws, and re-frames.
+  // in-flight tour (it was tracing the OLD path), redraws, and re-frames. Skips
+  // the redundant pass when `ready` flips (style.load already drew this route).
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !ready) return;
-    stopTour();
-    drawRoute(map); drawMarkers(map); frame(map);
+    if (!map || !ready || drawnRouteRef.current === route) return;
+    try {
+      stopTour();
+      drawRoute(map); drawMarkers(map); frame(map);
+      drawnRouteRef.current = route;
+    } catch (e) { console.warn("[trip-globe] route update", e); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route, ready]);
 
@@ -192,7 +210,7 @@ export default function TripGlobeImpl({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
-    drawRoute(map); drawMarkers(map);
+    try { drawRoute(map); drawMarkers(map); } catch (e) { console.warn("[trip-globe] redraw", e); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [color, markers, editable]);
 
