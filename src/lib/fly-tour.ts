@@ -127,14 +127,21 @@ export function flyTour(map: MbMap, path: TourPoint[], opts: TourOpts = {}): Tou
     });
 
   // A rAF phase: `step(p)` drives the camera each frame for `ms` (p is 0→1).
+  // rAF is paused in background tabs, so a cancel must NOT depend on a frame —
+  // an interval watcher resolves it promptly either way (Stop / trip-switch stay
+  // deterministic even when the tab is hidden).
   const animate = (ms: number, step: (p: number) => void) =>
     new Promise<void>((res) => {
+      let done = false;
+      const finish = () => { if (done) return; done = true; clearInterval(watch); res(); };
+      const watch = setInterval(() => { if (cancelled) finish(); }, 50);
       const t0 = performance.now();
       const frame = (now: number) => {
-        if (cancelled) return res();
+        if (done) return;
+        if (cancelled) return finish();
         const p = clamp((now - t0) / ms, 0, 1);
         step(p);
-        if (p < 1) requestAnimationFrame(frame); else res();
+        if (p < 1) requestAnimationFrame(frame); else finish();
       };
       requestAnimationFrame(frame);
     });
