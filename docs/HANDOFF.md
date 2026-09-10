@@ -142,14 +142,17 @@ created on the prototype DB:
 
 ## 8. What changes hands
 
-- **Client owns:** the Supabase project, the DO app, the Mapbox token, the domain
-  — all billed to them, credentials rotated to them.
-- **Unakin keeps (per the services agreement):** collaborator access to build and
-  maintain, and a license to reusable components (the fly-tour engine, CMS
-  scaffolding) for use on other projects. IP in the delivered app assigns to the
-  client on final payment.
-- **Offboarding:** if the relationship ends, Unakin's collaborator access is
-  removed; the app keeps running entirely on the client's accounts.
+- **Client owns:** their **accounts and data** — the Supabase project, the DO app,
+  the Mapbox token, the domain — all billed to them, credentials in their name. The
+  app runs entirely on the client's infrastructure, independent of Unakin.
+- **Unakin retains:** ownership of **all source code and IP** — the delivered app,
+  the fly-tour engine, and the CMS scaffolding. The client receives a **perpetual,
+  non-exclusive license to use** the deployed application for their business; IP does
+  **not** assign to the client. Unakin deploys and maintains it under the
+  Managed-Services Agreement.
+- **Offboarding:** the client keeps running the last delivered build on their own
+  accounts (per the license + continuity terms); Unakin's collaborator/deploy access
+  is removed. A source buyout, if ever wanted, is a separate priced agreement.
 
 ---
 

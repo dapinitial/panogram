@@ -144,13 +144,22 @@ export default function TripGlobeImpl({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Re-draw route + markers when they change (CMS live edits).
+  // A new route (e.g. importing a different GeoJSON) redraws AND re-frames the
+  // camera to it — otherwise the preview stays parked on the old location.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    drawRoute(map); drawMarkers(map); frame(map);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route, ready]);
+
+  // Colour / marker edits redraw in place — no camera yank.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
     drawRoute(map); drawMarkers(map);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [route, color, markers, editable, ready]);
+  }, [color, markers, editable]);
 
   // Manual fly trigger (CMS bumps playToken).
   useEffect(() => {

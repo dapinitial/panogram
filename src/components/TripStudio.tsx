@@ -62,6 +62,7 @@ export default function TripStudio({ baseUrl, userId }: { baseUrl: string; userI
   const [addMode, setAddMode] = useState(false);
   const [copied, setCopied] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null); // per-row delete arm
   const [origin, setOrigin] = useState(baseUrl);
   useEffect(() => { if (typeof window !== "undefined") setOrigin(window.location.origin); }, []);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -121,16 +122,27 @@ export default function TripStudio({ baseUrl, userId }: { baseUrl: string; userI
     setBusy(false);
     if (!saved) { setErr("Save failed — check you have editor access."); return; }
     track("trip_save", { props: { published: saved.published, new: !draft.id } });
-    await refresh();
+    // Update the list immediately (no page refresh): replace-or-prepend, newest first.
+    setTrips((prev) => [saved, ...prev.filter((t) => t.id !== saved.id)]
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
     selectTrip(saved);
   }
 
+  // Delete a trip by id — updates the list immediately, clears the editor if it
+  // was the open one. Used by both the actions-bar Delete and the per-row ✕.
+  async function removeTrip(id: string) {
+    const ok = await deleteTrip(id);
+    if (!ok) { setErr("Delete failed — check you have editor access."); return; }
+    setTrips((prev) => prev.filter((t) => t.id !== id));
+    setPendingDelete(null);
+    setDraft((d) => (d?.id === id ? null : d));
+  }
   async function del() {
     if (!draft?.id) return;
     setBusy(true);
-    const ok = await deleteTrip(draft.id);
+    await removeTrip(draft.id);
     setBusy(false);
-    if (ok) { setDraft(null); setConfirmDel(false); await refresh(); } else setErr("Delete failed.");
+    setConfirmDel(false);
   }
 
   async function revokeEditor(handle: string) {
@@ -171,11 +183,21 @@ export default function TripStudio({ baseUrl, userId }: { baseUrl: string; userI
         <aside className="studio-list">
           <button className="btn-fly studio-new" onClick={() => { setDraft(blankDraft()); setErr(""); setCopied(false); setAddMode(false); }}>+ New trip</button>
           {trips.map((t) => (
-            <button key={t.id} className="studio-trip" data-active={draft?.id === t.id} onClick={() => selectTrip(t)}>
-              <b>{t.title}</b>
-              <span className="studio-trip-meta">{t.region || "—"}</span>
+            <div key={t.id} className="studio-trip" data-active={draft?.id === t.id}>
+              <button className="studio-trip-main" onClick={() => selectTrip(t)}>
+                <b>{t.title}</b>
+                <span className="studio-trip-meta">{t.region || "—"}</span>
+              </button>
               <span className="studio-badge" data-pub={t.published}>{t.published ? "Live" : "Draft"}</span>
-            </button>
+              {pendingDelete === t.id ? (
+                <span className="studio-trip-confirm">
+                  <button className="studio-editor-x" title="Confirm delete" onClick={() => removeTrip(t.id)}>✓</button>
+                  <button className="studio-trip-cancel" title="Cancel" onClick={() => setPendingDelete(null)}>↩</button>
+                </span>
+              ) : (
+                <button className="studio-trip-del" title="Delete trip" onClick={() => setPendingDelete(t.id)}>✕</button>
+              )}
+            </div>
           ))}
           {trips.length === 0 && <p className="plot-hint">No trips yet — create one.</p>}
 
