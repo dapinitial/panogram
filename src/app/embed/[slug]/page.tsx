@@ -1,24 +1,27 @@
+import { cache } from "react";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { supabaseServer } from "@/lib/supabase-server";
-import { tripRowToTrip } from "@/lib/db";
+import { tripRowToTrip, TRIP_COLS } from "@/lib/db";
 import TripGlobe from "@/components/TripGlobe";
 
 // White-label, chrome-free 3D fly-by for one trip — embedded on external sites
-// (e.g. kafadventures.com) via <iframe src=".../embed/<slug>">. Public: reads a
-// PUBLISHED trip by slug through RLS (anonymous). Cross-origin framing is
-// allowed in src/proxy.ts for the /embed path. Autoplays + loops the tour.
+// via <iframe src=".../embed/<slug>">. Public: reads a PUBLISHED trip by slug
+// through RLS (anonymous). Cross-origin framing is allowed in src/proxy.ts for
+// the /embed path. Autoplays + loops the tour (a ▶ appears if autoplay is off).
 
 export const dynamic = "force-dynamic";
 
 type TripRowArg = Parameters<typeof tripRowToTrip>[0];
-const TRIP_SELECT = "id,slug,title,region,route,markers,color,summit_m,distance_m,gain_m,autoplay,published,created_at";
 
-async function getTrip(slug: string) {
+// TRIP_COLS is the SAME column list the CMS reads, so the embed can never drift
+// and silently drop a column (this once omitted `fly` — every tuned setting was
+// ignored on the public page). cache() dedupes the metadata + page fetch.
+const getTrip = cache(async (slug: string) => {
   const sb = await supabaseServer();
-  const { data } = await sb.from("trips").select(TRIP_SELECT).eq("slug", slug).eq("published", true).maybeSingle();
+  const { data } = await sb.from("trips").select(TRIP_COLS).eq("slug", slug).eq("published", true).maybeSingle();
   return data ? tripRowToTrip(data as TripRowArg) : null;
-}
+});
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
@@ -36,7 +39,8 @@ export default async function EmbedPage({ params }: { params: Promise<{ slug: st
   const site = process.env.NEXT_PUBLIC_SITE_URL ?? "https://panogram-fxfju.ondigitalocean.app";
   return (
     <main className="embed-stage">
-      <TripGlobe route={trip.route} markers={trip.markers} color={trip.color} fly={trip.fly} autoplay={trip.autoplay} loop />
+      <TripGlobe route={trip.route} markers={trip.markers} color={trip.color} fly={trip.fly}
+        autoplay={trip.autoplay} loop showPlay={!trip.autoplay} showLabels stopOnInteract neutral />
       <a className="embed-brand" href={site} target="_blank" rel="noopener noreferrer">Panogram</a>
     </main>
   );

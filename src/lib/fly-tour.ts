@@ -115,12 +115,15 @@ export function flyTour(map: MbMap, path: TourPoint[], opts: TourOpts = {}): Tou
   // golden dusk as you crest the summit (the celebration light).
   const sunFor = (p: number): "dawn" | "day" | "dusk" => (p < 0.12 ? "dawn" : p < 0.75 ? "day" : "dusk");
 
-  // A phase that hands the camera to Mapbox's own easing, resolving when it lands.
+  // A phase that hands the camera to Mapbox's own easing, resolving when it lands
+  // — or promptly on cancel, so a restart never waits out a 5s descent.
   const move = (cam: Parameters<MbMap["easeTo"]>[0], ms: number) =>
     new Promise<void>((res) => {
       if (cancelled) return res();
       map.easeTo({ ...cam, duration: ms, essential: true });
-      setTimeout(res, ms + 40);
+      const done = setTimeout(finish, ms + 40);
+      const watch = setInterval(() => { if (cancelled) finish(); }, 50);
+      function finish() { clearTimeout(done); clearInterval(watch); res(); }
     });
 
   // A rAF phase: `step(p)` drives the camera each frame for `ms` (p is 0→1).
@@ -152,7 +155,7 @@ export function flyTour(map: MbMap, path: TourPoint[], opts: TourOpts = {}): Tou
       // 0 — OPENING: descend from the chosen altitude (space reveal → regional
       // establish → straight to the trailhead).
       setPreset(base);
-      const introZoom = INTRO_ZOOM[opts.intro ?? "space"];
+      const introZoom = INTRO_ZOOM[opts.intro ?? "space"] ?? INTRO_ZOOM.space; // unknown value → space
       if (introZoom <= 5) {
         // Space reveal: the whole planet, a beat, then a long descent.
         map.jumpTo({ center: [start.lng, start.lat], zoom: introZoom, pitch: 0, bearing: 0 });
@@ -210,7 +213,8 @@ export function flyTour(map: MbMap, path: TourPoint[], opts: TourOpts = {}): Tou
         });
       });
     } finally {
-      for (const h of io) h?.enable?.();
+      // The map may already be removed if a cancel landed mid-phase during unmount.
+      try { for (const h of io) h?.enable?.(); } catch { /* map gone */ }
       opts.onEnd?.(cancelled);
     }
   })();

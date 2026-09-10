@@ -18,8 +18,13 @@ export default function TripGlobe(props: {
   autoplay?: boolean;
   loop?: boolean;
   playToken?: number;
+  stopToken?: number;
   editable?: boolean;
   addMode?: boolean;
+  showPlay?: boolean;
+  showLabels?: boolean;
+  stopOnInteract?: boolean;
+  neutral?: boolean;
   onAddMarker?: (ll: { lng: number; lat: number }) => void;
   onMoveMarker?: (i: number, ll: { lng: number; lat: number }) => void;
   onFlyingChange?: (flying: boolean) => void;

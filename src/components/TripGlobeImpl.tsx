@@ -9,15 +9,19 @@ import { flyTour, type TourHandle } from "@/lib/fly-tour";
 
 // A lean, CHROMELESS Standard-Satellite globe that drapes a route on real
 // terrain and flies the cinematic helicopter tour, honoring the trip's per-trip
-// fly-by settings. No tools, no panels — it's the embed surface (white-label)
-// and the CMS preview. Marker add/drag is enabled only when `editable`.
+// fly-by settings. It's the embed surface (white-label) and the CMS preview.
+// Marker add/drag only when `editable`; a minimal ▶ only when `showPlay`.
 
 const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 type LngLat = { lng: number; lat: number };
+const reducedMotion = () =>
+  typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
 export default function TripGlobeImpl({
-  route, markers = [], color = "#57eaff", fly = {}, autoplay = false, loop = false, playToken = 0,
-  editable = false, addMode = false, onAddMarker, onMoveMarker, onFlyingChange,
+  route, markers = [], color = "#57eaff", fly = {}, autoplay = false, loop = false,
+  playToken = 0, stopToken = 0, editable = false, addMode = false,
+  showPlay = false, showLabels = false, stopOnInteract = false, neutral = false,
+  onAddMarker, onMoveMarker, onFlyingChange,
 }: {
   route: MapRoutePoint[][];
   markers?: SavedMapMarker[];
@@ -25,9 +29,14 @@ export default function TripGlobeImpl({
   fly?: FlyConfig;
   autoplay?: boolean;
   loop?: boolean;
-  playToken?: number;
+  playToken?: number;    // bump to (re)start the tour (CMS "Fly" button)
+  stopToken?: number;    // bump to cancel a running tour (CMS "Stop" button)
   editable?: boolean;
   addMode?: boolean;
+  showPlay?: boolean;    // render a minimal ▶ when idle (embed with autoplay off)
+  showLabels?: boolean;  // always show marker labels (embed; hover is not a thing on phones)
+  stopOnInteract?: boolean; // first user gesture cancels the tour + stops looping (embed)
+  neutral?: boolean;     // white-label: neutral fallback text, no dev hints
   onAddMarker?: (ll: LngLat) => void;
   onMoveMarker?: (i: number, ll: LngLat) => void;
   onFlyingChange?: (flying: boolean) => void;
@@ -37,6 +46,8 @@ export default function TripGlobeImpl({
   const tourRef = useRef<TourHandle | null>(null);
   const markerObjs = useRef<mapboxgl.Marker[]>([]);
   const [ready, setReady] = useState(false);
+  const [flying, setFlying] = useState(false);
+  const [mapErr, setMapErr] = useState(false);
 
   // Refs so the one-time map handlers see fresh values.
   const loopRef = useRef(loop); useEffect(() => { loopRef.current = loop; }, [loop]);
@@ -44,9 +55,12 @@ export default function TripGlobeImpl({
   const addModeRef = useRef(addMode); useEffect(() => { addModeRef.current = addMode; }, [addMode]);
   const onAddRef = useRef(onAddMarker); useEffect(() => { onAddRef.current = onAddMarker; });
   const onMoveRef = useRef(onMoveMarker); useEffect(() => { onMoveRef.current = onMoveMarker; });
+  const onFlyRef = useRef(onFlyingChange); useEffect(() => { onFlyRef.current = onFlyingChange; });
   const editableRef = useRef(editable); useEffect(() => { editableRef.current = editable; }, [editable]);
 
   const path = route.flat();
+
+  const setFly = (v: boolean) => { setFlying(v); onFlyRef.current?.(v); };
 
   function drawRoute(map: mapboxgl.Map) {
     for (const id of ["trip-route", "trip-route-casing"]) if (map.getLayer(id)) map.removeLayer(id);
@@ -87,18 +101,25 @@ export default function TripGlobeImpl({
     if (!b.isEmpty()) map.fitBounds(b, { padding: 60, maxZoom: 13, pitch: 55, bearing: -20, duration: 0 });
   }
 
+  function stopTour() { tourRef.current?.cancel(); }
+
   function startTour() {
-    const map = mapRef.current; if (!map || !path.length) return;
+    const map = mapRef.current; if (!map || path.length < 2) return;
     tourRef.current?.cancel();
-    onFlyingChange?.(true);
-    tourRef.current = flyTour(map, path, {
+    setFly(true);
+    // Capture the handle so a cancelled-but-still-finishing older tour can't
+    // clobber the state of the one that replaced it.
+    let handle: TourHandle | null = null;
+    handle = flyTour(map, path, {
       ...flyRef.current,
       onEnd: (cancelled) => {
-        onFlyingChange?.(false);
+        if (tourRef.current !== handle) return; // stale tour — ignore
         tourRef.current = null;
-        if (!cancelled && loopRef.current) setTimeout(() => { if (mapRef.current) startTour(); }, 1800);
+        setFly(false);
+        if (!cancelled && loopRef.current) setTimeout(() => { if (mapRef.current && !tourRef.current) startTour(); }, 1800);
       },
     });
+    tourRef.current = handle;
   }
 
   useEffect(() => {
@@ -114,12 +135,24 @@ export default function TripGlobeImpl({
     });
     mapRef.current = map;
 
+    // Tile/style/token failures: surface a neutral overlay instead of a black canvas.
+    map.on("error", (e) => {
+      const status = (e as { error?: { status?: number } }).error?.status;
+      if (status === 401 || status === 403) setMapErr(true);
+    });
+
     map.on("click", (e) => {
       if (addModeRef.current && onAddRef.current) onAddRef.current({ lng: e.lngLat.lng, lat: e.lngLat.lat });
     });
 
+    // Embed: the first real gesture hands control to the visitor for good.
+    if (stopOnInteract) {
+      const takeover = () => { if (tourRef.current) { loopRef.current = false; tourRef.current.cancel(); } };
+      map.on("mousedown", takeover); map.on("touchstart", takeover); map.on("wheel", takeover);
+    }
+
     map.on("style.load", () => {
-      const base = flyRef.current.lightPreset ?? "dusk";
+      const base = flyRef.current.lightPreset ?? "dawn"; // matches the tour's opening light
       try { map.setConfigProperty("basemap", "lightPreset", base); } catch {}
       for (const [k, v] of Object.entries({ showPointOfInterestLabels: false, showTransitLabels: false, showRoadLabels: false })) {
         try { map.setConfigProperty("basemap", k, v); } catch {}
@@ -137,18 +170,20 @@ export default function TripGlobeImpl({
       map.setTerrain({ source: "mapbox-dem", exaggeration: 1.5 });
       drawRoute(map); drawMarkers(map); frame(map);
       setReady(true);
-      if (autoplay) setTimeout(() => { if (mapRef.current) startTour(); }, 900);
+      // Honour reduced-motion: never auto-launch a 60s camera move on them.
+      if (autoplay && !reducedMotion()) setTimeout(() => { if (mapRef.current) startTour(); }, 900);
     });
 
-    return () => { tourRef.current?.cancel(); for (const mk of markerObjs.current) mk.remove(); mapRef.current = null; map.remove(); };
+    return () => { tourRef.current?.cancel(); tourRef.current = null; for (const mk of markerObjs.current) mk.remove(); mapRef.current = null; map.remove(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // A new route (e.g. importing a different GeoJSON) redraws AND re-frames the
-  // camera to it — otherwise the preview stays parked on the old location.
+  // A new route (importing a different file / switching trips) cancels any
+  // in-flight tour (it was tracing the OLD path), redraws, and re-frames.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
+    stopTour();
     drawRoute(map); drawMarkers(map); frame(map);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route, ready]);
@@ -161,11 +196,18 @@ export default function TripGlobeImpl({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [color, markers, editable]);
 
-  // Manual fly trigger (CMS bumps playToken).
+  // "Light mood" applies live in the preview, not only on the next fly.
   useEffect(() => {
-    if (playToken > 0 && ready) startTour();
+    const map = mapRef.current;
+    if (!map || !ready || flying) return;
+    try { map.setConfigProperty("basemap", "lightPreset", fly.lightPreset ?? "dawn"); } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fly.lightPreset, ready]);
+
+  // Manual fly / stop triggers (CMS bumps the tokens).
+  useEffect(() => { if (playToken > 0 && ready) startTour(); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playToken]);
+  useEffect(() => { if (stopToken > 0) stopTour(); }, [stopToken]);
 
   // Crosshair while dropping a marker.
   useEffect(() => {
@@ -174,7 +216,23 @@ export default function TripGlobeImpl({
   }, [addMode]);
 
   if (!TOKEN) {
-    return <div className="trip-globe trip-globe--empty"><span>3D needs a Mapbox key (NEXT_PUBLIC_MAPBOX_TOKEN).</span></div>;
+    return (
+      <div className="trip-globe trip-globe--empty">
+        <span>{neutral ? "Map unavailable." : "3D needs a Mapbox key (NEXT_PUBLIC_MAPBOX_TOKEN)."}</span>
+      </div>
+    );
   }
-  return <div ref={box} className="trip-globe" />;
+  return (
+    <div className={"trip-globe-wrap" + (showLabels ? " trip-globe--labels" : "")}>
+      <div ref={box} className="trip-globe" />
+      {mapErr && (
+        <div className="trip-globe-overlay">
+          <span>{neutral ? "Map unavailable." : "Mapbox rejected the token for this origin (401/403) — check the token's URL restrictions."}</span>
+        </div>
+      )}
+      {showPlay && ready && !flying && !mapErr && path.length >= 2 && (
+        <button className="trip-globe-play" onClick={startTour} aria-label="Play the fly-by">▶ Fly the trail</button>
+      )}
+    </div>
+  );
 }

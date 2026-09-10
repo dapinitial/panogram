@@ -16,6 +16,10 @@ import {
 // with ALL the tools in a CONTROL BAR BELOW the map (map stays clean, like the
 // embed). Upload a GPX/GeoJSON, tune the fly-by, edit markers, publish — then
 // copy the <iframe> snippet for the external site.
+//
+// Guards (from the UX audit): unsaved-changes banner before switching trips /
+// leaving the page, a global error toast, LIVE warnings before delete/unpublish,
+// no self-revoke, confirm before revoking anyone, Stop for a running flight.
 
 type Draft = {
   id?: string; slug?: string; title: string; region: string;
@@ -37,9 +41,9 @@ const hasRoute = (d: Draft | null) => !!d && d.route.some((s) => s.length > 1);
 const km = (m: number) => (m / 1000).toFixed(1);
 
 const INTROS: { v: IntroLevel; label: string }[] = [
-  { v: "space", label: "🌍 Space" }, { v: "continent", label: "🗺️ Continent" },
-  { v: "country", label: "🏳️ Country" }, { v: "region", label: "⛰️ Region" },
-  { v: "area", label: "🌲 Area" }, { v: "trailhead", label: "🥾 Trailhead" },
+  { v: "space", label: "Space" }, { v: "continent", label: "Continent" },
+  { v: "country", label: "Country" }, { v: "region", label: "Region" },
+  { v: "area", label: "Area" }, { v: "trailhead", label: "Trailhead" },
 ];
 const LIGHTS: { v: LightPreset; label: string }[] = [
   { v: "dawn", label: "Dawn" }, { v: "day", label: "Day" }, { v: "dusk", label: "Dusk" }, { v: "night", label: "Night" },
@@ -49,53 +53,76 @@ const PACES: { v: number; label: string }[] = [
 ];
 
 export default function TripStudio({ baseUrl, userId }: { baseUrl: string; userId: string }) {
-  void userId;
   const [trips, setTrips] = useState<Trip[]>([]);
-  const [editors, setEditors] = useState<{ handle: string; isAdmin: boolean }[]>([]);
+  const [editors, setEditors] = useState<{ id: string; handle: string; isAdmin: boolean }[]>([]);
   const [invites, setInvites] = useState<string[]>([]);
   const [inviteEmail, setInviteEmail] = useState("");
+  const [pendingRevoke, setPendingRevoke] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [pendingNav, setPendingNav] = useState<(() => void) | null>(null);
   const [busy, setBusy] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [err, setErr] = useState("");
   const [playToken, setPlayToken] = useState(0);
+  const [stopToken, setStopToken] = useState(0);
   const [flying, setFlying] = useState(false);
   const [addMode, setAddMode] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"url" | "snippet" | null>(null);
   const [confirmDel, setConfirmDel] = useState(false);
-  const [pendingDelete, setPendingDelete] = useState<string | null>(null); // per-row delete arm
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  // Snippet origin: the configured public site URL, else where the CMS is served.
   const [origin, setOrigin] = useState(baseUrl);
-  useEffect(() => { if (typeof window !== "undefined") setOrigin(window.location.origin); }, []);
+  useEffect(() => { if (!baseUrl && typeof window !== "undefined") setOrigin(window.location.origin); }, [baseUrl]);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const refresh = async () => setTrips(await loadTrips());
   const refreshEditors = async () => { setEditors(await loadTripEditors()); setInvites(await loadTripInvites()); };
   useEffect(() => { refresh(); refreshEditors(); }, []);
 
-  const patch = (p: Partial<Draft>) => setDraft((d) => (d ? { ...d, ...p } : d));
-  const patchFly = (p: Partial<FlyConfig>) => setDraft((d) => (d ? { ...d, fly: { ...d.fly, ...p } } : d));
+  // Warn before the tab closes with unsaved work.
+  useEffect(() => {
+    if (!dirty) return;
+    const h = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", h);
+    return () => window.removeEventListener("beforeunload", h);
+  }, [dirty]);
+
+  // Any edit marks the draft dirty; save/select/new clear it.
+  const patch = (p: Partial<Draft>) => { setDraft((d) => (d ? { ...d, ...p } : d)); setDirty(true); };
+  const patchFly = (p: Partial<FlyConfig>) => { setDraft((d) => (d ? { ...d, fly: { ...d.fly, ...p } } : d)); setDirty(true); };
+  // Route the action through the unsaved-changes guard.
+  const guarded = (fn: () => void) => { if (dirty) setPendingNav(() => fn); else fn(); };
+
+  const resetUi = () => { setErr(""); setCopied(null); setConfirmDel(false); setAddMode(false); setPendingDelete(null); setDirty(false); };
 
   function selectTrip(t: Trip) {
-    setErr(""); setCopied(false); setConfirmDel(false); setAddMode(false);
+    resetUi();
     setDraft({
       id: t.id, slug: t.slug, title: t.title, region: t.region,
       route: t.route, markers: t.markers, color: t.color, summitM: t.summitM,
       distanceM: t.distanceM, gainM: t.gainM, autoplay: t.autoplay, published: t.published, fly: t.fly,
     });
   }
+  function newTrip() { resetUi(); setDraft(blankDraft()); }
 
   async function onFile(file: File | undefined) {
     if (!file) return;
-    setErr("");
+    setErr(""); setImporting(true);
     const res = await importPlotFile(file);
+    setImporting(false);
     if ("error" in res) { setErr(res.error); return; }
     const p = res.plot;
     setDraft((d) => {
       const b = d ?? blankDraft();
       return {
-        ...b, title: b.title || p.title, route: p.route, markers: p.markers,
+        ...b, title: b.title || p.title, route: p.route,
+        // Replacing the route keeps hand-placed markers; only take the file's if we had none.
+        markers: b.markers.length ? b.markers : p.markers,
         color: p.color ?? b.color, distanceM: p.distanceM, gainM: p.gainM, summitM: summitOf(p.route),
       };
     });
+    setDirty(true);
   }
 
   // ── markers ──
@@ -104,7 +131,7 @@ export default function TripStudio({ baseUrl, userId }: { baseUrl: string; userI
   const removeMarker = (i: number) => patch({ markers: (draft?.markers ?? []).filter((_, j) => j !== i) });
   const addMarkerAt = (ll: { lng: number; lat: number }) => {
     setDraft((d) => (d ? { ...d, markers: [...d.markers, { lat: ll.lat, lng: ll.lng, label: "New marker", poiType: "other" }] } : d));
-    setAddMode(false);
+    setDirty(true); setAddMode(false);
   };
   const moveMarker = (i: number, ll: { lng: number; lat: number }) => patchMarker(i, { lat: ll.lat, lng: ll.lng });
 
@@ -118,35 +145,35 @@ export default function TripStudio({ baseUrl, userId }: { baseUrl: string; userI
       color: draft.color, summitM: draft.summitM, distanceM: draft.distanceM, gainM: draft.gainM,
       autoplay: draft.autoplay, published: draft.published, fly: draft.fly,
     };
-    const saved = draft.id ? await updateTrip(draft.id, input) : await createTrip(input, trips.map((t) => t.slug));
+    const res = draft.id ? await updateTrip(draft.id, input) : await createTrip(input, trips.map((t) => t.slug));
     setBusy(false);
-    if (!saved) { setErr("Save failed — check you have editor access."); return; }
+    if ("error" in res) { setErr(res.error); return; }
+    const saved = res.trip;
     track("trip_save", { props: { published: saved.published, new: !draft.id } });
-    // Update the list immediately (no page refresh): replace-or-prepend, newest first.
+    // List updates immediately (replace-or-prepend, newest first).
     setTrips((prev) => [saved, ...prev.filter((t) => t.id !== saved.id)]
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
-    selectTrip(saved);
+    // Keep the editor's current route reference so the preview doesn't re-frame on save.
+    setDraft((d) => (d ? { ...d, id: saved.id, slug: saved.slug, published: saved.published } : d));
+    setDirty(false);
   }
 
-  // Delete a trip by id — updates the list immediately, clears the editor if it
-  // was the open one. Used by both the actions-bar Delete and the per-row ✕.
+  // Delete by id — list updates immediately; clears the editor if it was open.
   async function removeTrip(id: string) {
     const ok = await deleteTrip(id);
     if (!ok) { setErr("Delete failed — check you have editor access."); return; }
     setTrips((prev) => prev.filter((t) => t.id !== id));
     setPendingDelete(null);
-    setDraft((d) => (d?.id === id ? null : d));
+    setDraft((d) => { if (d?.id === id) { setDirty(false); return null; } return d; });
   }
   async function del() {
     if (!draft?.id) return;
-    setBusy(true);
-    await removeTrip(draft.id);
-    setBusy(false);
-    setConfirmDel(false);
+    setBusy(true); await removeTrip(draft.id); setBusy(false); setConfirmDel(false);
   }
 
   async function revokeEditor(handle: string) {
     const ok = await grantTripEditor(handle, false);
+    setPendingRevoke(null);
     if (ok) await refreshEditors(); else setErr(`Couldn't remove @${handle}.`);
   }
   async function invite(email: string) {
@@ -157,20 +184,26 @@ export default function TripStudio({ baseUrl, userId }: { baseUrl: string; userI
   }
   async function unInvite(email: string) {
     const ok = await revokeTripInvite(email);
-    if (ok) await refreshEditors();
+    if (ok) await refreshEditors(); else setErr(`Couldn't cancel the invite for ${email}.`);
   }
 
   const embedUrl = draft?.slug ? `${origin}/embed/${draft.slug}` : "";
   const snippet = embedUrl
     ? `<iframe src="${embedUrl}" width="100%" height="540" style="border:0;border-radius:16px" loading="lazy" allow="fullscreen"></iframe>`
     : "";
-  function copyText(text: string) {
+  function copyText(text: string, which: "url" | "snippet") {
     if (!text) return;
-    navigator.clipboard?.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+    if (!navigator.clipboard) { setErr("Couldn't copy — select the text and copy it manually."); return; }
+    navigator.clipboard.writeText(text)
+      .then(() => { setCopied(which); setTimeout(() => setCopied(null), 2000); })
+      .catch(() => setErr("Couldn't copy — select the text and copy it manually."));
   }
 
   const fly = draft?.fly ?? {};
   const pitch = fly.pitch ?? 62;
+  const savedTrip = draft?.id ? trips.find((t) => t.id === draft.id) : undefined;
+  const wasLive = !!savedTrip?.published;
+  const unpublishing = wasLive && !!draft && !draft.published;
 
   return (
     <main className="studio">
@@ -179,23 +212,31 @@ export default function TripStudio({ baseUrl, userId }: { baseUrl: string; userI
         <a className="btn-sec" href="/">← App</a>
       </header>
 
+      {err && (
+        <div className="studio-toast" role="alert">
+          <span>{err}</span>
+          <button onClick={() => setErr("")} aria-label="Dismiss">✕</button>
+        </div>
+      )}
+
       <div className="studio-body">
         <aside className="studio-list">
-          <button className="btn-fly studio-new" onClick={() => { setDraft(blankDraft()); setErr(""); setCopied(false); setAddMode(false); }}>+ New trip</button>
+          <button className="btn-fly studio-new" onClick={() => guarded(newTrip)}>+ New trip</button>
           {trips.map((t) => (
             <div key={t.id} className="studio-trip" data-active={draft?.id === t.id}>
-              <button className="studio-trip-main" onClick={() => selectTrip(t)}>
+              <button className="studio-trip-main" onClick={() => guarded(() => selectTrip(t))}>
                 <b>{t.title}</b>
                 <span className="studio-trip-meta">{t.region || "—"}</span>
               </button>
               <span className="studio-badge" data-pub={t.published}>{t.published ? "Live" : "Draft"}</span>
               {pendingDelete === t.id ? (
-                <span className="studio-trip-confirm">
+                <span className="studio-trip-confirm" title={t.published ? "This trip is LIVE — any embed of it will stop working" : "Confirm delete"}>
+                  {t.published && <span className="studio-live-warn">LIVE</span>}
                   <button className="studio-editor-x" title="Confirm delete" onClick={() => removeTrip(t.id)}>✓</button>
                   <button className="studio-trip-cancel" title="Cancel" onClick={() => setPendingDelete(null)}>↩</button>
                 </span>
               ) : (
-                <button className="studio-trip-del" title="Delete trip" onClick={() => setPendingDelete(t.id)}>✕</button>
+                <button className="studio-trip-del" title="Delete trip" aria-label={`Delete ${t.title}`} onClick={() => setPendingDelete(t.id)}>✕</button>
               )}
             </div>
           ))}
@@ -203,12 +244,22 @@ export default function TripStudio({ baseUrl, userId }: { baseUrl: string; userI
 
           <div className="studio-editors">
             <div className="studio-editors-head">Trip editors</div>
-            {editors.map((e) => (
-              <div className="studio-editor" key={e.handle}>
-                <span>@{e.handle}{e.isAdmin && <em> · admin</em>}</span>
-                {!e.isAdmin && <button className="studio-editor-x" title="Remove access" onClick={() => revokeEditor(e.handle)}>✕</button>}
-              </div>
-            ))}
+            {editors.map((e) => {
+              const me = e.id === userId;
+              return (
+                <div className="studio-editor" key={e.id}>
+                  <span>@{e.handle}{e.isAdmin && <em> · admin</em>}{me && <em className="studio-editor-you"> · you</em>}</span>
+                  {!e.isAdmin && !me && (pendingRevoke === e.handle ? (
+                    <span className="studio-trip-confirm">
+                      <button className="studio-editor-x" title="Confirm remove access" onClick={() => revokeEditor(e.handle)}>✓</button>
+                      <button className="studio-trip-cancel" title="Cancel" onClick={() => setPendingRevoke(null)}>↩</button>
+                    </span>
+                  ) : (
+                    <button className="studio-editor-x" title="Remove access" onClick={() => setPendingRevoke(e.handle)}>✕</button>
+                  ))}
+                </div>
+              );
+            })}
             {invites.map((em) => (
               <div className="studio-editor studio-invite" key={em}>
                 <span>{em} <em>· invited</em></span>
@@ -225,6 +276,13 @@ export default function TripStudio({ baseUrl, userId }: { baseUrl: string; userI
         </aside>
 
         <section className="studio-edit">
+          {pendingNav && (
+            <div className="studio-unsaved" role="alertdialog">
+              <span>You have unsaved changes on this trip.</span>
+              <button className="btn-sec" onClick={() => { const go = pendingNav; setPendingNav(null); go(); }}>Discard changes</button>
+              <button className="btn-fly" onClick={() => setPendingNav(null)}>Keep editing</button>
+            </div>
+          )}
           {!draft ? (
             <div className="studio-empty">Select a trip on the left, or create a new one.</div>
           ) : (
@@ -232,24 +290,25 @@ export default function TripStudio({ baseUrl, userId }: { baseUrl: string; userI
               <div className="studio-preview">
                 {hasRoute(draft)
                   ? <TripGlobe route={draft.route} markers={draft.markers} color={draft.color} fly={draft.fly}
-                      playToken={playToken} editable addMode={addMode}
+                      playToken={playToken} stopToken={stopToken} editable addMode={addMode}
                       onAddMarker={addMarkerAt} onMoveMarker={moveMarker} onFlyingChange={setFlying} />
                   : <div className="studio-preview-empty"><span>Upload a GPX or GeoJSON to preview the route in 3D.</span></div>}
               </div>
 
               <div className="studio-bar">
                 <div className="studio-row">
-                  <button className="btn-sec" onClick={() => fileRef.current?.click()}>
-                    {hasRoute(draft) ? "Replace route" : "Upload GPX / GeoJSON"}
+                  <button className="btn-sec" disabled={importing} onClick={() => fileRef.current?.click()}>
+                    {importing ? "Importing…" : hasRoute(draft) ? "Replace route" : "Upload GPX / GeoJSON"}
                   </button>
-                  <button className="btn-fly" disabled={!hasRoute(draft)} onClick={() => setPlayToken((n) => n + 1)}>
-                    {flying ? "Flying…" : "▶ Fly the trail"}
-                  </button>
+                  {flying
+                    ? <button className="btn-sec" onClick={() => setStopToken((n) => n + 1)}>■ Stop</button>
+                    : <button className="btn-fly" disabled={!hasRoute(draft)} onClick={() => setPlayToken((n) => n + 1)}>▶ Fly the trail</button>}
                   {hasRoute(draft) && (
                     <span className="studio-stats">
-                      {km(draft.distanceM)} km · +{Math.round(draft.gainM)} m{draft.summitM ? ` · ${draft.summitM.toLocaleString()} m` : ""}
+                      {km(draft.distanceM)} km · +{Math.round(draft.gainM)} m{draft.summitM != null ? ` · ${draft.summitM.toLocaleString()} m` : ""}
                     </span>
                   )}
+                  {hasRoute(draft) && draft.markers.length > 0 && <span className="studio-hint-inline">Replacing the route keeps your markers.</span>}
                 </div>
 
                 {/* Fly-by settings */}
@@ -261,7 +320,7 @@ export default function TripStudio({ baseUrl, userId }: { baseUrl: string; userI
                     </select>
                   </label>
                   <label className="studio-field studio-field--range">
-                    <span>Birdseye angle · {pitch}°</span>
+                    <span>Camera tilt · {pitch}°</span>
                     <input type="range" min={45} max={78} value={pitch} onChange={(e) => patchFly({ pitch: Number(e.target.value) })} />
                   </label>
                   <label className="studio-field">
@@ -271,7 +330,7 @@ export default function TripStudio({ baseUrl, userId }: { baseUrl: string; userI
                     </select>
                   </label>
                   <label className="studio-field">
-                    <span>Light mood</span>
+                    <span>Light mood {fly.sunSweep !== false ? "(at takeoff)" : ""}</span>
                     <select value={fly.lightPreset ?? "dawn"} onChange={(e) => patchFly({ lightPreset: e.target.value as LightPreset })}>
                       {LIGHTS.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
                     </select>
@@ -289,44 +348,47 @@ export default function TripStudio({ baseUrl, userId }: { baseUrl: string; userI
                   <label className="studio-field"><span>Region</span>
                     <input value={draft.region} maxLength={120} placeholder="Citlaltépetl · Mexico" onChange={(e) => patch({ region: e.target.value })} /></label>
                   <div className="studio-field"><span>Line colour</span>
-                    <div className="plot-colors">
-                      {ROUTE_COLORS.map((c) => (
-                        <button key={c} className="plot-color" data-on={draft.color === c} style={{ background: c }} onClick={() => patch({ color: c })} aria-label={`Colour ${c}`} />
+                    <div className="plot-colors" role="radiogroup" aria-label="Line colour">
+                      {ROUTE_COLORS.map((c, i) => (
+                        <button key={c} className="plot-color" role="radio" aria-checked={draft.color === c} data-on={draft.color === c}
+                          style={{ background: c }} onClick={() => patch({ color: c })} aria-label={`Colour ${i + 1}`} />
                       ))}
                     </div>
                   </div>
                   <label className="studio-toggle"><input type="checkbox" checked={draft.autoplay} onChange={(e) => patch({ autoplay: e.target.checked })} /><span>Auto-play on load</span></label>
-                  <label className="studio-toggle"><input type="checkbox" checked={draft.published} onChange={(e) => patch({ published: e.target.checked })} /><span>Published</span></label>
+                  <label className="studio-toggle"><input type="checkbox" checked={draft.published} onChange={(e) => patch({ published: e.target.checked })} /><span>Published (Live)</span></label>
+                  {unpublishing && <span className="studio-live-warn">Unpublishing will blank any page that embeds this trip.</span>}
                 </div>
 
                 {/* Markers */}
                 {hasRoute(draft) && (
                   <div className="studio-markers">
                     <div className="studio-markers-head">
-                      <span>Markers</span>
+                      <span>Markers <span className="studio-hint-inline">· drag a pin on the map to move it</span></span>
                       <button className="btn-sec" data-on={addMode} onClick={() => setAddMode((v) => !v)}>{addMode ? "Click the map…" : "+ Add marker"}</button>
                     </div>
                     {draft.markers.map((m, i) => (
                       <div className="studio-marker" key={i} data-critical={POI[m.poiType]?.safetyCritical}>
-                        <input value={m.label} onChange={(e) => patchMarker(i, { label: e.target.value })} />
-                        <select value={m.poiType} onChange={(e) => patchMarker(i, { poiType: e.target.value as PoiType })}>
+                        <input value={m.label} aria-label={`Marker ${i + 1} name`} onChange={(e) => patchMarker(i, { label: e.target.value })} />
+                        <select value={m.poiType} aria-label={`Marker ${i + 1} type`} onChange={(e) => patchMarker(i, { poiType: e.target.value as PoiType })}>
                           {(Object.keys(POI) as PoiType[]).map((k) => <option key={k} value={k}>{POI[k].label}</option>)}
                         </select>
-                        <button className="studio-editor-x" onClick={() => removeMarker(i)} aria-label="Remove marker">✕</button>
+                        <button className="studio-editor-x" onClick={() => removeMarker(i)} aria-label={`Remove marker ${i + 1}`}>✕</button>
                       </div>
                     ))}
                     {draft.markers.length === 0 && <p className="plot-hint">No markers — drop camp/water/POI with “Add marker”, or they come in from the file.</p>}
                   </div>
                 )}
 
-                {err && <div className="studio-err">{err}</div>}
-
                 <div className="studio-row studio-actions">
-                  <button className="btn-fly" disabled={busy} onClick={save}>{busy ? "Saving…" : draft.id ? "Save changes" : "Create trip"}</button>
-                  {draft.id && !confirmDel && <button className="btn-sec studio-danger" onClick={() => setConfirmDel(true)}>Delete</button>}
+                  <button className="btn-fly" disabled={busy} onClick={save}>
+                    {busy ? "Saving…" : draft.id ? "Save changes" : "Create trip"}
+                    {dirty && !busy && <span className="studio-dirty-dot" title="Unsaved changes" />}
+                  </button>
+                  {draft.id && !confirmDel && <button className="btn-sec studio-danger" onClick={() => setConfirmDel(true)}>Delete trip</button>}
                   {draft.id && confirmDel && (
                     <span className="studio-confirm">
-                      Delete “{draft.title}”?
+                      Delete “{draft.title}”?{wasLive && <span className="studio-live-warn"> It&apos;s LIVE — embeds of it will stop working.</span>}
                       <button className="btn-sec studio-danger" disabled={busy} onClick={del}>Yes, delete</button>
                       <button className="btn-sec" onClick={() => setConfirmDel(false)}>Cancel</button>
                     </span>
@@ -336,15 +398,16 @@ export default function TripStudio({ baseUrl, userId }: { baseUrl: string; userI
                 {draft.slug && (
                   <div className="studio-embed">
                     <div className="studio-embed-head">
-                      <span>Embed on kafadventures.com — paste into a Squarespace Code Block:</span>
+                      <span>Embed on your site — paste into a Squarespace Code Block or a Shopify custom HTML section:</span>
                       <span className="studio-embed-actions">
                         <a className="btn-sec" href={embedUrl} target="_blank" rel="noopener noreferrer">Open preview ↗</a>
-                        <button className="btn-sec" onClick={() => copyText(embedUrl)}>Copy URL</button>
-                        <button className="btn-sec" onClick={() => copyText(snippet)}>{copied ? "Copied ✓" : "Copy snippet"}</button>
+                        <button className="btn-sec" onClick={() => copyText(embedUrl, "url")}>{copied === "url" ? "Copied ✓" : "Copy URL"}</button>
+                        <button className="btn-sec" onClick={() => copyText(snippet, "snippet")}>{copied === "snippet" ? "Copied ✓" : "Copy snippet"}</button>
                       </span>
                     </div>
                     <code className="studio-snippet">{snippet}</code>
                     {!draft.published && <p className="plot-hint">Note: the embed only renders once this trip is Published.</p>}
+                    {dirty && <p className="plot-hint">Unsaved changes aren&apos;t on the embed until you save.</p>}
                   </div>
                 )}
               </div>

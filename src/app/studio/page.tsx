@@ -1,6 +1,7 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import TripStudio from "@/components/TripStudio";
 import StudioLogin from "@/components/StudioLogin";
+import StudioSignOut from "@/components/StudioSignOut";
 
 // The Trips CMS — a white-label content tool for a trusted collaborator to add,
 // edit and publish embeddable 3D fly-by routes without touching code. Gated to
@@ -29,6 +30,7 @@ export default async function StudioPage() {
             <div className="eyebrow">Trips CMS</div>
             <h1>Not a trip editor yet</h1>
             <p>The account <b>{user.email}</b> doesn&apos;t have trip access. Ask an editor to invite this email, then reload — you&apos;ll be let in automatically.</p>
+            <div style={{ marginTop: 14 }}><StudioSignOut /></div>
           </div>
         ) : (
           <StudioLogin />

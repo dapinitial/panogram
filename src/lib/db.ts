@@ -298,7 +298,9 @@ type TripRow = {
   color: string; summit_m: number | null; distance_m: number; gain_m: number;
   autoplay: boolean; published: boolean; fly: FlyConfig | null; created_at: string;
 };
-const TRIP_COLS = "id,slug,title,region,route,markers,color,summit_m,distance_m,gain_m,autoplay,published,fly,created_at";
+// Shared by every trip read (CMS + the public embed) so no surface can drift and
+// silently drop a column like `fly`.
+export const TRIP_COLS = "id,slug,title,region,route,markers,color,summit_m,distance_m,gain_m,autoplay,published,fly,created_at";
 export const tripRowToTrip = (r: TripRow): Trip => ({
   id: r.id, slug: r.slug, title: r.title, region: r.region,
   route: r.route ?? [], markers: r.markers ?? [],
@@ -333,9 +335,19 @@ export type TripInput = {
   autoplay: boolean; published: boolean; fly: FlyConfig;
 };
 
+// Turn a Postgres/PostgREST error into something an editor can act on.
+function tripErrorMessage(e: { code?: string; message?: string } | null, fallback: string): string {
+  if (!e) return fallback;
+  if (e.code === "23505") return "A trip with this title already exists — change the title and save again.";
+  if (e.code === "42501" || /row-level security/i.test(e.message ?? "")) return "You don't have editor access to do that.";
+  if (/fetch|network/i.test(e.message ?? "")) return "Network problem — check your connection and try again.";
+  return e.message ? `Save failed: ${e.message}` : fallback;
+}
+export type TripResult = { trip: Trip } | { error: string };
+
 /** Create a trip (RLS gates to editors). Slug derived from the title, de-duped. */
-export async function createTrip(t: TripInput, existingSlugs: string[]): Promise<Trip | null> {
-  const sb = browserSupabase(); if (!sb) return null;
+export async function createTrip(t: TripInput, existingSlugs: string[]): Promise<TripResult> {
+  const sb = browserSupabase(); if (!sb) return { error: "Supabase isn't configured." };
   let slug = slugify(t.title), n = 2;
   while (existingSlugs.includes(slug)) slug = `${slugify(t.title)}-${n++}`;
   const { data, error } = await sb.from("trips").insert({
@@ -343,13 +355,13 @@ export async function createTrip(t: TripInput, existingSlugs: string[]): Promise
     route: t.route, markers: t.markers, color: t.color, summit_m: t.summitM,
     distance_m: t.distanceM, gain_m: t.gainM, autoplay: t.autoplay, published: t.published, fly: t.fly,
   }).select(TRIP_COLS).single();
-  if (error || !data) return null;
-  return tripRowToTrip(data as TripRow);
+  if (error || !data) return { error: tripErrorMessage(error, "Save failed.") };
+  return { trip: tripRowToTrip(data as TripRow) };
 }
 
 /** Patch an existing trip by id (RLS gates to editors). */
-export async function updateTrip(id: string, patch: Partial<TripInput>): Promise<Trip | null> {
-  const sb = browserSupabase(); if (!sb) return null;
+export async function updateTrip(id: string, patch: Partial<TripInput>): Promise<TripResult> {
+  const sb = browserSupabase(); if (!sb) return { error: "Supabase isn't configured." };
   const row: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (patch.title != null) row.title = patch.title.slice(0, 120);
   if (patch.region != null) row.region = patch.region.slice(0, 120);
@@ -363,8 +375,8 @@ export async function updateTrip(id: string, patch: Partial<TripInput>): Promise
   if (patch.published != null) row.published = patch.published;
   if (patch.fly != null) row.fly = patch.fly;
   const { data, error } = await sb.from("trips").update(row).eq("id", id).select(TRIP_COLS).single();
-  if (error || !data) return null;
-  return tripRowToTrip(data as TripRow);
+  if (error || !data) return { error: tripErrorMessage(error, "Save failed.") };
+  return { trip: tripRowToTrip(data as TripRow) };
 }
 
 export async function deleteTrip(id: string): Promise<boolean> {
@@ -373,13 +385,14 @@ export async function deleteTrip(id: string): Promise<boolean> {
   return !error;
 }
 
-/** Current trip editors (admins + can_manage_trips holders) — profiles are public-read. */
-export async function loadTripEditors(): Promise<{ handle: string; isAdmin: boolean }[]> {
+/** Current trip editors (admins + can_manage_trips holders) — profiles are public-read.
+ *  Includes `id` so the CMS can mark the caller's own row and stop self-revoke. */
+export async function loadTripEditors(): Promise<{ id: string; handle: string; isAdmin: boolean }[]> {
   const sb = browserSupabase(); if (!sb) return [];
-  const { data } = await sb.from("profiles").select("handle,is_admin,can_manage_trips")
+  const { data } = await sb.from("profiles").select("id,handle,is_admin,can_manage_trips")
     .or("can_manage_trips.eq.true,is_admin.eq.true");
-  return ((data as { handle: string; is_admin: boolean; can_manage_trips: boolean }[]) ?? [])
-    .map((p) => ({ handle: p.handle, isAdmin: p.is_admin }));
+  return ((data as { id: string; handle: string; is_admin: boolean; can_manage_trips: boolean }[]) ?? [])
+    .map((p) => ({ id: p.id, handle: p.handle, isAdmin: p.is_admin }));
 }
 
 /** Grant/revoke a collaborator's trip-editor access by @handle. Runs through a

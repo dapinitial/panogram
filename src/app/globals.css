@@ -1392,3 +1392,47 @@ a.who:hover .handle { color: var(--ink); }
 .studio-login input:focus { outline: none; border-color: var(--accent); }
 .studio-invite span { color: #9595b0; }
 .studio-invite em { color: #ffcd64; }
+
+/* ── UX audit fixes: touch/keyboard delete, globe overlays, labels, toasts ── */
+/* Row delete: reveal on keyboard focus and on touch (no hover there). */
+.studio-trip:focus-within .studio-trip-del, .studio-trip-del:focus-visible { opacity: 1; }
+@media (hover: none) { .studio-trip-del { opacity: 1; } }
+
+/* Globe wrapper so overlays/play can position over the canvas. */
+.trip-globe-wrap { position: relative; width: 100%; height: 100%; }
+.embed-stage .trip-globe-wrap { position: absolute; inset: 0; }
+.embed-stage .trip-globe-wrap .trip-globe { position: absolute; inset: 0; }
+/* Marker labels: always on for the embed, and on any touch device. */
+.trip-globe--labels .plot-pin-label { opacity: 1; }
+@media (hover: none) { .plot-pin-label { opacity: 1; } }
+.trip-globe-overlay {
+  position: absolute; inset: 0; z-index: 4; display: grid; place-items: center; text-align: center;
+  padding: 20px; background: rgba(5,6,10,0.86); color: #c3c3d2; font-size: 13px; line-height: 1.5;
+}
+.trip-globe-play {
+  position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 5;
+  color: #06110a; background: #aef23a; border: 1px solid #aef23a; border-radius: 999px;
+  padding: 11px 20px; font-family: var(--font-display), system-ui; font-weight: 600; font-size: 13.5px;
+  letter-spacing: 0.02em; cursor: pointer; box-shadow: 0 0 26px -6px #aef23a;
+}
+.trip-globe-play:hover { filter: brightness(1.08); }
+
+/* Embed: missing/unpublished trip (replaces Next's white 404 inside the iframe). */
+.embed-missing { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: #9595b0; font-family: var(--font-body), system-ui; font-size: 14px; }
+.embed-missing-glyph { display: block; font-size: 42px; opacity: 0.55; margin-bottom: 10px; }
+
+/* CMS: global error toast (visible regardless of which pane caused it). */
+.studio-toast {
+  margin: 12px 24px 0; padding: 10px 14px; border-radius: 10px; display: flex; justify-content: space-between; gap: 12px; align-items: center;
+  background: rgba(255,122,122,0.12); border: 1px solid rgba(255,122,122,0.32); color: #ff9a9a; font-size: 13px;
+}
+.studio-toast button { background: none; border: 0; color: inherit; cursor: pointer; font-size: 14px; }
+/* CMS: unsaved-changes guard banner. */
+.studio-unsaved {
+  position: sticky; top: 0; z-index: 6; margin-bottom: 12px; padding: 10px 14px; border-radius: 10px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  background: rgba(255,205,100,0.12); border: 1px solid rgba(255,205,100,0.38); color: #ffd97a; font-size: 13px;
+}
+.studio-dirty-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #ffcd64; margin-left: 7px; vertical-align: middle; box-shadow: 0 0 8px #ffcd64; }
+.studio-editor-you { color: #57eaff; font-size: 11px; font-style: normal; }
+.studio-live-warn { color: #ffcd64; font-size: 12px; }
+.studio-hint-inline { color: #9595b0; font-size: 11.5px; }
