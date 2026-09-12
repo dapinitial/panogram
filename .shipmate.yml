@@ -1,0 +1,5 @@
+# shipmate project settings — read by the pre-push guard, preflight and the live check
+# (skills/deploy/lib/project.sh in the shipmate repo documents every key)
+deploy_remote: origin
+branch: main
+max_files: 40
