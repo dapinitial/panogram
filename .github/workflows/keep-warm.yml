@@ -42,7 +42,7 @@ jobs:
           esac
           code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
             "$URL/rest/v1/posts?select=id&limit=1" \
-            -H "apikey: $KEY" -H "Authorization: Bearer $KEY")
+            -H "apikey: $KEY" -H "Authorization: Bearer $KEY") || code="000"  # curl rc≠0 (DNS fail = paused) → readable 000, not a bare exit 6
           echo "Supabase REST ping → HTTP $code"
           # 200 = healthy read. Anything else means the project is unhealthy/paused —
           # fail so the run shows red and GitHub emails the repo owner.
