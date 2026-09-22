@@ -1,7 +1,13 @@
 # Keeps the free-tier Supabase project from pausing. Supabase pauses a free
-# project after ~7 days of no activity (and eventually deletes it) — which once
-# took the whole backend offline (auth "Load failed", NXDOMAIN host). A tiny REST
-# read every 3 days counts as database activity and resets that clock.
+# project after ~7 days of no activity (and eventually deletes it) — which has
+# taken the whole backend offline twice (auth "Load failed", NXDOMAIN host,
+# every /embed 404). A tiny REST read every 2 days counts as database activity
+# and resets that clock.
+#
+# 2026-09-22 post-mortem: this workflow reported green for weeks while Panogram
+# paused anyway — the SUPABASE_URL secret was pointed at a different project, so
+# it was keeping the WRONG database warm. Hence the guard below: the URL must
+# contain Panogram's own project ref or the run fails loudly.
 #
 # URL + key come from repo secrets (SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY), never
 # committed — matches the project's "no keys in committed files" protocol even
@@ -10,9 +16,9 @@ name: Keep Supabase warm
 
 on:
   schedule:
-    # Every 3 days at 08:17 UTC. Odd minute avoids the top-of-hour scheduler rush
-    # (GitHub can delay cron under load); 3-day cadence leaves margin under the 7-day limit.
-    - cron: "17 8 */3 * *"
+    # Every 2 days at 08:17 UTC (was 3 — more margin under the 7-day limit). Odd
+    # minute avoids the top-of-hour scheduler rush, when GitHub delays cron.
+    - cron: "17 8 */2 * *"
   workflow_dispatch: {} # allow manual "Run workflow" from the Actions tab
 
 jobs:
@@ -28,7 +34,13 @@ jobs:
             echo "::error::Missing SUPABASE_URL / SUPABASE_PUBLISHABLE_KEY repo secrets"
             exit 1
           fi
-          code=$(curl -s -o /dev/null -w '%{http_code}' \
+          # Guard: only ever ping the Panogram project (ref moepkkdpsimwpshgvwlt).
+          # A wrong-project secret must fail, not silently succeed against another DB.
+          case "$URL" in
+            *moepkkdpsimwpshgvwlt.supabase.co*) ;;
+            *) echo "::error::SUPABASE_URL is not the Panogram project (moepkkdpsimwpshgvwlt) — refusing to ping a different database"; exit 1 ;;
+          esac
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
             "$URL/rest/v1/posts?select=id&limit=1" \
             -H "apikey: $KEY" -H "Authorization: Bearer $KEY")
           echo "Supabase REST ping → HTTP $code"

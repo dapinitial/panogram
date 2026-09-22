@@ -18,7 +18,7 @@ the seeds create the demo content.
 | Account | For | Notes |
 |---|---|---|
 | **GitHub** | the code | fork/transfer this repo, or grant the maintainer access |
-| **Supabase** | DB · Auth · Storage | one project; free tier is fine to start |
+| **Supabase** | DB · Auth · Storage | one project. **Use Pro (~$25/mo).** Free tier auto-pauses after 7 idle days and takes every embed offline (happened twice); a keep-warm ping is a stopgap, not a fix |
 | **DigitalOcean** | hosting (App Platform) | ~$5–12/mo |
 | **Mapbox** | 3D map tiles | free to 50k loads/mo |
 | **Resend** (optional) | magic-link + alert email | only if using email features |
