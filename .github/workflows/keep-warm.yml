@@ -7,7 +7,8 @@
 #    for a month while Panogram paused (2026-09-22).
 #  - 2026-09-22: re-pointed + guard added, 1 read / 2 days — correct target but
 #    BELOW the threshold; pause warning again 2026-09-28.
-#  - 2026-09-28: 4 runs/day × 4 queries (~16 real DB queries/day).
+#  - 2026-09-28: hourly × 4 queries (~96 real DB queries/day) — same cadence as
+#    shotgundetour's hourly pg_cron → /api → DB loop, which never pauses.
 #
 # URL + key come from repo secrets (SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY), never
 # committed. The publishable key is anon-safe; reads are RLS public-read tables.
@@ -15,8 +16,9 @@ name: Keep Supabase warm
 
 on:
   schedule:
-    # Every 6 hours at :17 (odd minute avoids GitHub's top-of-hour cron pile-up).
-    - cron: "17 */6 * * *"
+    # HOURLY at :17 — matches the proven cadence that keeps shotgundetour alive (its
+    # pg_cron jobs call the app every hour). Odd minute avoids the top-of-hour pile-up.
+    - cron: "17 * * * *"
   workflow_dispatch: {} # manual "Run workflow" from the Actions tab
 
 jobs:
