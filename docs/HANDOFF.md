@@ -46,6 +46,16 @@ the seeds create the demo content.
 
 > `supabase db push` is a production write — treat it as a deploy.
 
+### Keep-alive on the Free plan (if not using Pro)
+
+Supabase pauses Free projects that get **too few queries in a week**. If the client
+stays on Free, install the in-database keep-alive: open `supabase/keepalive-cron.sql`,
+change the URL to **their** deployed origin, and run it in their project's SQL editor.
+It schedules a `pg_cron` job that fetches the app's `/embed/pico-de-orizaba` hourly,
+which makes the server issue a real PostgREST query — genuine activity, no external
+service, no keys. (Pro makes this unnecessary; paid projects never pause.)
+
+
 ---
 
 ## 2. Mapbox token (3D map + embeds)
