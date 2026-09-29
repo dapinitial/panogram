@@ -1,52 +1,50 @@
-# Keeps the free-tier Supabase project from pausing. Supabase pauses a free
-# project after ~7 days of no activity (and eventually deletes it) — which has
-# taken the whole backend offline twice (auth "Load failed", NXDOMAIN host,
-# every /embed 404). A tiny REST read every 2 days counts as database activity
-# and resets that clock.
+# Keeps the free-tier Supabase project from pausing.
 #
-# 2026-09-22 post-mortem: this workflow reported green for weeks while Panogram
-# paused anyway — the SUPABASE_URL secret was pointed at a different project, so
-# it was keeping the WRONG database warm. Hence the guard below: the URL must
-# contain Panogram's own project ref or the run fails loudly.
+# Supabase's rule (docs/guides/platform/free-project-pausing): a Free project is
+# paused when it gets "too few user queries" over a week; "typically a few user
+# requests to the database EACH DAY" is enough to stay up. History of this file:
+#  - 2026-08-26: 1 read / 3 days — secret pointed at the WRONG project; green
+#    for a month while Panogram paused (2026-09-22).
+#  - 2026-09-22: re-pointed + guard added, 1 read / 2 days — correct target but
+#    BELOW the threshold; pause warning again 2026-09-28.
+#  - 2026-09-28: 4 runs/day × 4 queries (~16 real DB queries/day).
 #
 # URL + key come from repo secrets (SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY), never
-# committed — matches the project's "no keys in committed files" protocol even
-# though the publishable key is anon-safe by design.
+# committed. The publishable key is anon-safe; reads are RLS public-read tables.
 name: Keep Supabase warm
 
 on:
   schedule:
-    # Every 2 days at 08:17 UTC (was 3 — more margin under the 7-day limit). Odd
-    # minute avoids the top-of-hour scheduler rush, when GitHub delays cron.
-    - cron: "17 8 */2 * *"
-  workflow_dispatch: {} # allow manual "Run workflow" from the Actions tab
+    # Every 6 hours at :17 (odd minute avoids GitHub's top-of-hour cron pile-up).
+    - cron: "17 */6 * * *"
+  workflow_dispatch: {} # manual "Run workflow" from the Actions tab
 
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Query Supabase REST (counts as DB activity)
+      - name: Query Supabase (several real DB reads = "user activity")
         env:
           URL: ${{ secrets.SUPABASE_URL }}
           KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
         run: |
           if [ -z "$URL" ] || [ -z "$KEY" ]; then
-            echo "::error::Missing SUPABASE_URL / SUPABASE_PUBLISHABLE_KEY repo secrets"
-            exit 1
+            echo "::error::Missing SUPABASE_URL / SUPABASE_PUBLISHABLE_KEY repo secrets"; exit 1
           fi
           # Guard: only ever ping the Panogram project (ref moepkkdpsimwpshgvwlt).
-          # A wrong-project secret must fail, not silently succeed against another DB.
           case "$URL" in
             *moepkkdpsimwpshgvwlt.supabase.co*) ;;
             *) echo "::error::SUPABASE_URL is not the Panogram project (moepkkdpsimwpshgvwlt) — refusing to ping a different database"; exit 1 ;;
           esac
-          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
-            "$URL/rest/v1/posts?select=id&limit=1" \
-            -H "apikey: $KEY" -H "Authorization: Bearer $KEY") || code="000"  # curl rc≠0 (DNS fail = paused) → readable 000, not a bare exit 6
-          echo "Supabase REST ping → HTTP $code"
-          # 200 = healthy read. Anything else means the project is unhealthy/paused —
-          # fail so the run shows red and GitHub emails the repo owner.
-          if [ "$code" != "200" ]; then
-            echo "::error::Keep-warm ping failed (HTTP $code) — project may be paused or unhealthy"
-            exit 1
+          fail=0
+          for t in posts trips maps profiles; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
+              "$URL/rest/v1/$t?select=id&limit=1" \
+              -H "apikey: $KEY" -H "Authorization: Bearer $KEY") || code="000"
+            echo "REST $t → HTTP $code"
+            [ "$code" = "200" ] || fail=1
+          done
+          # Any non-200 = paused/unhealthy — fail loudly so GitHub emails the owner.
+          if [ "$fail" = "1" ]; then
+            echo "::error::Keep-warm ping failed — project may be paused or unhealthy"; exit 1
           fi
