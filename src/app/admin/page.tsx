@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { MEDIA, type MediaType } from "@/lib/types";
 import ModerationQueue, { type ModReport } from "@/components/ModerationQueue";
@@ -72,10 +73,15 @@ export default async function AdminPage({
 }: {
   searchParams: Promise<{ key?: string }>;
 }) {
-  // Optional gate: set ADMIN_KEY to lock this page; pass ?key=… to view.
+  // Gate: pass ?key=… matching ADMIN_KEY to view. It fails CLOSED in production: with no
+  // ADMIN_KEY set, the data room (telemetry, open reports with reporter handles, campaigns and
+  // budgets) stays locked instead of open to anyone, as it was until 2026-10-23. Local dev
+  // without a key stays open for convenience.
   const gate = process.env.ADMIN_KEY;
   const { key } = await searchParams;
-  if (gate && key !== gate) {
+  const keyOk = !!gate && typeof key === "string" && key.length === gate.length &&
+    timingSafeEqual(Buffer.from(key), Buffer.from(gate));
+  if (gate ? !keyOk : process.env.NODE_ENV === "production") {
     return (
       <main className="admin">
         <div className="lock glass">
