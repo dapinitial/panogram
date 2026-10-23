@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { clientIp, limited } from "@/lib/ratelimit";
 
 // Deterministic peak data for the horizon-label layer (VISION deterministic
 // layer, sibling of the sun): named OSM peaks near a capture point plus the
@@ -77,6 +78,13 @@ export async function GET(req: Request) {
   }
 
   const key = `${lat.toFixed(2)},${lng.toFixed(2)}`; // ~1km buckets
+  // A miss queries three public Overpass mirrors at once and writes a cache row, so a script
+  // walking the map could get this server banned there and fill peak_cache. Cached buckets
+  // stay free; misses are limited per visitor, and the in-memory cache is bounded.
+  if (!cache.has(key) && limited("peaks:" + clientIp(req), 30, 60_000)) {
+    return NextResponse.json({ ok: false, error: "slow down" }, { status: 429 });
+  }
+  if (cache.size > 5000) cache.clear();
 
   // L1 — in-memory (per instance, fastest).
   const hit = cache.get(key);
