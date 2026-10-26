@@ -27,7 +27,7 @@ export default function ModerationQueue({ reports, adminKey }: { reports: ModRep
   const [err, setErr] = useState("");
 
   async function act(r: ModReport, action: "remove" | "dismiss") {
-    if (!adminKey) { setErr("Set ADMIN_KEY and open /admin?key=… to take action."); return; }
+    // No key is fine when the moderator is a signed-in admin: the API checks the session.
     setBusy(r.id + action); setErr("");
     const res = await fetch("/api/moderation", {
       method: "POST",
@@ -35,7 +35,7 @@ export default function ModerationQueue({ reports, adminKey }: { reports: ModRep
       body: JSON.stringify({ key: adminKey, reportId: r.id, targetType: r.targetType, targetId: r.targetId, action, reason: r.reason }),
     });
     setBusy(null);
-    if (!res.ok) { setErr(`Action failed (${res.status}).`); return; }
+    if (!res.ok) { setErr(res.status === 403 ? "Not allowed: sign in as an admin, or open /admin?key=… with the admin key." : `Action failed (${res.status}).`); return; }
     // On remove, drop every queued report for the same target (the API resolved them).
     setItems((cur) => cur.filter((x) => (action === "remove" ? !(x.targetType === r.targetType && x.targetId === r.targetId) : x.id !== r.id)));
   }

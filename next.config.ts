@@ -24,7 +24,7 @@ const common = [
     "frame-src 'self'",
     "worker-src 'self' blob:",
     "object-src 'none'", "base-uri 'self'", "form-action 'self'",
-    "report-uri /api/csp-report",
+    "report-uri https://portal.unakin.com/api/csp-report?site=panogram",   // one table for every site's reports
   ].join("; ") },
 ];
 

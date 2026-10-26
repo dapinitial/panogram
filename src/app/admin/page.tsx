@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { isSignedInAdmin } from "@/lib/admin-auth";
 import { MEDIA, type MediaType } from "@/lib/types";
 import ModerationQueue, { type ModReport } from "@/components/ModerationQueue";
 
@@ -77,11 +78,14 @@ export default async function AdminPage({
   // ADMIN_KEY set, the data room (telemetry, open reports with reporter handles, campaigns and
   // budgets) stays locked instead of open to anyone, as it was until 2026-10-23. Local dev
   // without a key stays open for convenience.
+  // Two ways in: a signed-in profile with is_admin (the way that leaves nothing in browser
+  // history), or the ADMIN_KEY in the address as a fallback.
   const gate = process.env.ADMIN_KEY;
   const { key } = await searchParams;
   const keyOk = !!gate && typeof key === "string" && key.length === gate.length &&
     timingSafeEqual(Buffer.from(key), Buffer.from(gate));
-  if (gate ? !keyOk : process.env.NODE_ENV === "production") {
+  const signedInAdmin = await isSignedInAdmin();
+  if (!signedInAdmin && (gate ? !keyOk : process.env.NODE_ENV === "production")) {
     return (
       <main className="admin">
         <div className="lock glass">

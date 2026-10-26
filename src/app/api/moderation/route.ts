@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { timingSafeEqual } from "node:crypto";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { isSignedInAdmin } from "@/lib/admin-auth";
 
 // Moderation actions for the admin data room. Gated by ADMIN_KEY (the same key
 // that unlocks /admin) and executed with the secret-key client so it can soft-
@@ -17,9 +19,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "bad json" }, { status: 400 });
   }
 
+  // Destructive. Either a signed-in admin profile (the session cookie, same-site, no key in the
+  // page) or the ADMIN_KEY, compared in constant time. Never allowed when neither is set.
   const gate = process.env.ADMIN_KEY;
-  // Destructive — never allow when unguarded. Require ADMIN_KEY to be set + matched.
-  if (!gate || body.key !== gate) {
+  const keyOk = !!gate && typeof body.key === "string" && body.key.length === gate.length &&
+    timingSafeEqual(Buffer.from(body.key), Buffer.from(gate));
+  if (!keyOk && !(await isSignedInAdmin())) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 403 });
   }
 
