@@ -3,3 +3,6 @@
 deploy_remote: origin
 branch: main
 max_files: 40
+
+# site-hardening live check (the sentinel runs it; see ~/.claude/skills/site-hardening)
+security_embed: /embed/x
