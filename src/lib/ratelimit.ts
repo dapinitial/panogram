@@ -11,6 +11,12 @@ export function clientIp(req: Request): string {
   return parts.length >= 2 ? parts[parts.length - 2] : parts[0] || "unknown";
 }
 
+// The fleet-wide blocklist (site-hardening skill): known-bad ranges built in, the shared JSON
+// re-read hourly. The public routes answer a blocked range with 204 and do nothing.
+import { Blocklist } from "./blocklist.mjs";
+const blocklist = new Blocklist({ url: process.env.BLOCKLIST_URL || "https://raw.githubusercontent.com/dapinitial/site-hardening/main/blocklist.json" });
+export const blocked = (req: Request): boolean => blocklist.has(clientIp(req));
+
 const windows = new Map<string, number[]>();
 
 /** Sliding window: true when `key` already has `max` hits inside `windowMs` (and this one isn't counted). */
